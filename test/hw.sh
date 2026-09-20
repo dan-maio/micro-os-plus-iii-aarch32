@@ -18,7 +18,12 @@
 # PURE OpenOCD: no GDB, no reset, and the UART console is NOT touched --
 # keep your own terminal on /dev/ttyACM0.
 #
-# Usage:  test/hw.sh [app|all] [run-seconds]
+# ONE TEST PER POWER CYCLE: the run is a debug-in-RAM load over whatever
+# the previous test left in DRAM, and the Pi has no reset a script can
+# drive. Run one test, power-cycle the board, run the next.
+#
+# Usage:  test/hw.sh <app> [run-seconds]
+#         test/hw.sh list          the tests this build has
 # Env:    PROBE=jlink (default) | olimex
 #         BUILD=<dir>  the CMake build directory (default: build)
 set -uo pipefail
@@ -47,4 +52,4 @@ UOS_HW_ENTRY=0x1003c \
 UOS_HW_SPIN_WORDS=4 \
 UOS_HW_RESUME=cpsr \
 UOS_HW_NCPU=4 \
-exec "$SMP_DIR/test/run-hw.sh" "$BUILD/test" "${1:-all}" "${2:-}"
+exec "$SMP_DIR/test/run-hw.sh" "$BUILD/test" "${1:-list}" "${2:-}"
