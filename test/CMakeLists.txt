@@ -13,6 +13,7 @@
 # -----------------------------------------------------------------------------
 
 set (BOARD "zero2w" CACHE STRING "Target board: zero2w or rpi3b")
+option (UOS_DEBUG_BOOT "Compile the hwd builds with the early-boot markers" OFF)
 set_property (CACHE BOARD PROPERTY STRINGS zero2w rpi3b)
 
 set (_boards_dir "${UOS_AARCH32_ROOT}/boards/rpi-zero-2w")
@@ -39,7 +40,14 @@ foreach (_app IN LISTS UOS_TEST_APPS)
 
   foreach (_variant IN ITEMS qemu hwd)
     if (_variant STREQUAL "hwd")
-      set (_variant_defines HW_BUILD DEBUG_BOOT)
+      # DEBUG_BOOT is opt-in, as the sources themselves assume ("default
+      # OFF, so the normal build stays quiet"): every early-boot marker
+      # is a semihosting trap, and under a JTAG probe each one costs real
+      # time. Turn it on only when bringing a board up.
+      set (_variant_defines HW_BUILD)
+      if (UOS_DEBUG_BOOT)
+        list (APPEND _variant_defines DEBUG_BOOT)
+      endif ()
     else ()
       set (_variant_defines "")
     endif ()
