@@ -1,6 +1,0 @@
-[submodule "external/micro-os-plus-iii-smp"]
-	path = external/micro-os-plus-iii-smp
-	url = /home/dan/Downloads/GIT/micro-os-plus-iii-smp.git
-[submodule "external/micro-os-plus-iii-devices"]
-	path = external/micro-os-plus-iii-devices
-	url = /home/dan/Downloads/GIT/micro-os-plus-iii-devices.git
