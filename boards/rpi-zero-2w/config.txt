@@ -1,0 +1,18 @@
+# config.txt — Raspberry Pi Zero 2W, µOS++ AArch32 kernel
+# Place on the FAT32 boot partition next to kernel7.img.
+
+# Boot our kernel in 32-bit ARMv7 mode.
+kernel=kernel7.img
+arm_64bit=0
+
+# Load address 0x10000 — matches the linker (ORIGIN=0x10000) so the SAME
+# binary also runs under QEMU raspi2b (-kernel loads at 0x10000).
+kernel_address=0x010000
+
+# UART0 (PL011) on GPIO14/15 for the console, 115200 8N1.
+enable_uart=1
+
+# Maximise RAM for the kernel.
+gpu_mem=16
+
+disable_splash=1
