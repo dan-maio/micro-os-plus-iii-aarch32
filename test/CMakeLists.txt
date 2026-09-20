@@ -17,12 +17,22 @@ option (UOS_DEBUG_BOOT "Compile the hwd builds with the early-boot markers" OFF)
 set_property (CACHE BOARD PROPERTY STRINGS zero2w rpi3b)
 
 set (_boards_dir "${UOS_AARCH32_ROOT}/boards/rpi-zero-2w")
+# Which LED a test blinks is a fact about the board, not about the test, so
+# it is set here for every test rather than per application.
+#
+#   zero2w  the onboard green ACT LED is a plain SoC GPIO, number 29.
+#           led.hpp's own fallback is GPIO16 -- header pin 36, for an
+#           externally wired LED -- which blinks nothing on a bare board.
+#   rpi3b   the ACT LED is not a SoC GPIO at all: it is VideoCore expander
+#           GPIO 130, driven through the mailbox, so LED_PIN does not apply.
+set (LED_PIN 29 CACHE STRING "GPIO driven as the user LED (zero2w only)")
+
 if (BOARD STREQUAL "rpi3b")
   set (_linker "${_boards_dir}/linker-rpi3b.ld")
   set (_board_defines BOARD_RPI3B)
 else ()
   set (_linker "${_boards_dir}/linker.ld")
-  set (_board_defines "")
+  set (_board_defines LED_PIN=${LED_PIN})
 endif ()
 
 # Shared by every test on this port. Semihosting is on by default, as it was
