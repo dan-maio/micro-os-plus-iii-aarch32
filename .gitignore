@@ -1,6 +1,7 @@
 # Build trees
-build/
-build-*/
+# build*/ , not build/ + build-*/ : a directory named build15 or
+# buildgcc14 slipped through the narrower pair and got committed once.
+build*/
 cmake-build*/
 output/
 target/
