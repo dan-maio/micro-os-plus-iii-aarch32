@@ -21,7 +21,11 @@ namespace os
         inline void __attribute__ ((always_inline))
         greeting (void)
         {
-          trace::printf ("Scheduler: µOS++ Raspberry Pi Zero 2W (BCM2837, 4x Cortex-A53 SMP, 1ms Tick, LDREX lock)\n");
+          // PORT_GREETING names the board; the port's CMakeLists defines it
+          // per board. It used to be this one string, so every board this
+          // port grew announced itself as a Raspberry Pi.
+          trace::printf ("Scheduler: " PORT_GREETING ", %d CPU(s), 1ms tick, LDREX lock\n",
+                         (int) OS_NCPU);
         }
 
         inline port::scheduler::state_t __attribute__ ((always_inline))

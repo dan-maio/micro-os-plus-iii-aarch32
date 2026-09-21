@@ -10,11 +10,11 @@
 // to it, so a frame built from a wild pointer stops here instead of somewhere
 // unrecognisable later.
 #if defined(QEMU_BUILD)
-#define PORT_RAM_BASE 0x40000000u
-#define PORT_RAM_END  0x48000000u
+#define PORT_RAM_BASE 0x40000000
+#define PORT_RAM_END  0x48000000
 #else
-#define PORT_RAM_BASE 0x00200000u
-#define PORT_RAM_END  0x08000000u
+#define PORT_RAM_BASE 0x00200000
+#define PORT_RAM_END  0x08000000
 #endif
 
 extern "C" {

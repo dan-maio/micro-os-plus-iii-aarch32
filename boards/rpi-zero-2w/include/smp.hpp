@@ -6,8 +6,11 @@
 // The DRAM window this board's images live in. The port checks a stack
 // pointer against it before switching to it, so a frame built from a wild
 // pointer stops here instead of somewhere unrecognisable later.
-#define PORT_RAM_BASE 0x00008000u
-#define PORT_RAM_END  0x20000000u
+//
+// No integer suffix: context_switch.cpp pastes these straight into an
+// `ldr rN, =...` and the assembler will not take a 'u'.
+#define PORT_RAM_BASE 0x00008000
+#define PORT_RAM_END  0x20000000
 
 extern "C" {
 

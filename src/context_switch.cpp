@@ -1,4 +1,9 @@
 #include <uart.hpp>
+#include <smp.hpp>
+
+// Paste a macro's *value* into the inline asm, not its name.
+#define UOS_STR_(x) #x
+#define UOS_STR(x)  UOS_STR_(x)
 
 extern "C" void port_ctx_switch_corrupt(uint32_t new_sp, uint32_t old_sp)
 {
@@ -40,11 +45,15 @@ extern "C" [[gnu::naked]] void port_ctx_switchHandler()
         "mov    r0, sp                  \n"
         "bl     port_switch_stacks      \n"
 
-        /* Safety check: is new_sp inside [0x00010000, 0x20000000)? (Pi DRAM) */
-        "ldr    r1, =0x00010000         \n"
+        /* Safety check: is new_sp inside this board's DRAM window? The bounds
+         * are a board fact (boards/<board>/include/smp.hpp), not an ISA one.
+         * They used to be the Pi's literals in this shared file, which on any
+         * other board is a check against the wrong memory map -- wider here,
+         * so it passed, but it would have been narrower just as easily. */
+        "ldr    r1, =" UOS_STR (PORT_RAM_BASE) " \n"
         "cmp    r0, r1                  \n"
         "blo    .Lcorrupt_sp            \n"
-        "ldr    r1, =0x20000000         \n"
+        "ldr    r1, =" UOS_STR (PORT_RAM_END) " \n"
         "cmp    r0, r1                  \n"
         "bhs    .Lcorrupt_sp            \n"
 

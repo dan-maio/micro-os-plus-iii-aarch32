@@ -9,10 +9,24 @@
 // L1 translation table, 16 KiB / 16 KiB-aligned, reserved in the linker script.
 extern "C" std::uint32_t __ttb_base[4096];
 
-#ifndef MMU_DRAM_CACHEABLE
-// Cacheable DRAM is OFF by default.
-#define MMU_DRAM_CACHEABLE 0
-#endif
+// There is no "cacheable DRAM off" build any more, and there never really was
+// one: the predecessor project carried a MMU_DRAM_CACHEABLE switch that
+// defaulted to 0, and then passed -DMMU_DRAM_CACHEABLE=1 in every single one
+// of its thirteen Makefiles. A default nothing ever used is not a default,
+// it is a trap -- and this port fell straight into it the first time the
+// board ran, because CMake did not carry the -D over.
+//
+// The "off" setting cannot work. It maps DRAM Normal NON-CACHEABLE and, worse,
+// NON-SHAREABLE, and turns SCTLR.C and SCTLR.I off as well. The kernel's
+// scheduler lock is LDREX/STREX, and an exclusive access to non-shareable,
+// non-cacheable memory has no usable exclusive monitor on this interconnect:
+// the first LDREX the kernel executes takes a synchronous external abort
+// (DFSR 0x1008). Everything that did run before that ran at raw DRAM latency
+// with both caches off, which is visible to the naked eye on the console.
+//
+// So DRAM is Normal write-back write-allocate and Shareable, full stop --
+// exactly as the BCM2837 board maps it, which is why that board has no such
+// switch either.
 
 extern "C" char __dma_nc_start[], __dma_nc_end[];
 
@@ -39,13 +53,8 @@ constexpr uint32_t kNormalNc   = (1u << 12) | (0u << 3) | (0u << 2); // Normal n
 constexpr uint32_t kNormalWbwa = (1u << 12) | (1u << 3) | (1u << 2); // Normal WB write-alloc
 } // namespace bits
 
-#if MMU_DRAM_CACHEABLE
 constexpr uint32_t kDramAttr =
     bits::kSection | bits::kApRwAll | bits::kDomain0 | bits::kNormalWbwa | bits::kShared;
-#else
-constexpr uint32_t kDramAttr =
-    bits::kSection | bits::kApRwAll | bits::kDomain0 | bits::kNormalNc;
-#endif
 constexpr uint32_t kDeviceAttr =
     bits::kSection | bits::kApRwAll | bits::kDomain0 | bits::kDevice | bits::kXn;
 
@@ -123,14 +132,13 @@ extern "C" void mmu_enable() {
     uint32_t sctlr = read_sctlr();
     sctlr |=  (1u << 0);   // M : MMU enable
     sctlr &= ~(1u << 1);   // A : alignment fault DISABLED
-    sctlr &= ~(1u << 13);  // V : low vectors
-#if MMU_DRAM_CACHEABLE
+    sctlr &= ~(1u << 13);  // V : low vectors (use VBAR)
     sctlr |=  (1u << 2);   // C : data/unified cache
     sctlr |=  (1u << 12);  // I : instruction cache
-#else
-    sctlr &= ~(1u << 2);   // C : data cache off
-    sctlr &= ~(1u << 12);  // I : instruction cache off
-#endif
+    // SCTLR.Z is not touched here, unlike the BCM2837 board. On a Cortex-A7
+    // it is RAO/WI -- branch prediction is always on -- so setting it would
+    // be a no-op, and this file is otherwise exactly what the predecessor
+    // project compiled.
     write_sctlr(sctlr);
     isb();
 }
