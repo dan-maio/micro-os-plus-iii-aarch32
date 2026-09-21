@@ -1,102 +1,120 @@
 # -----------------------------------------------------------------------------
 # Test builds for the AArch32 port.
 #
-# Twelve applications x two variants = 24 targets, all from one loop. The
-# application list and the per-test knobs come from the kernel repository
-# (test_smpl/apps.cmake), so this file never names a test.
+# Every board owns its tests. They live in boards/<id>/test/, one directory per
+# application, and this file builds whatever is there -- twice, once per
+# variant:
 #
 #   qemu  the build the QEMU suites run: semihosting on, no boot-card I/O
 #   hwd   the build for real hardware: HW_BUILD, so the SD tests use the
 #         existing FAT32 boot partition, plus the early-boot asm markers
 #
-# BOARD selects the board: rpi-zero-2w (default), rpi3b or luckfox-lyra.
+# There is no shared test list and no capability filter, because there is
+# nothing left to filter: a board builds the directories it has. A board with
+# no SD card has no sd_test directory; a single-CPU board has no smp_* ones.
+# Adding, removing or fixing a test touches one board and reaches no other.
+#
+# Each board's test/ also carries the support its tests share -- include/ and
+# src/ -- and a tests.cmake naming the few knobs a directory listing cannot
+# express: which tests link the board's driver set, and any per-test -D flags.
+#
+# BOARD selects the board; boards that share silicon share a test directory the
+# same way they share src/ (rpi3b builds rpi-zero-2w's).
 # -----------------------------------------------------------------------------
 
-# BOARD is declared by the port, above: it picks the board directory the port
-# compiles, so the port needs it before this directory is added.
 option (UOS_DEBUG_BOOT "Compile the hwd builds with the early-boot markers" OFF)
 
 set (_boards_dir "${UOS_BOARD_SRC_DIR}")
+set (_test_dir   "${_boards_dir}/test")
 
-# Every board fact this file needs was declared by boards/<BOARD>/board.cmake
-# -- the linker script per variant, the core count, the LED pin, the defines.
-# There is deliberately no "if (BOARD STREQUAL ...)" anywhere below: a port
-# with twenty boards cannot carry a chain per file, and a chain is exactly
-# what lets a new board silently take the previous one's branch.
-set (_linker_hwd    "${UOS_BOARD_LINKER_HW}")
-set (_linker_qemu   "${UOS_BOARD_LINKER_QEMU}")
-set (_ncpu          "${UOS_BOARD_NCPU}")
-set (_board_defines "")
+if (NOT IS_DIRECTORY "${_test_dir}")
+  message (FATAL_ERROR
+           "boards/${BOARD} has no test/ directory. Every board has one: it is "
+           "where that board's test applications live.")
+endif ()
 
-set (_common_defines TRACE __ARM_EABI__ __ARM_ARCH_7A__ SEMIHOST ${_board_defines})
+set (_linker_hwd  "${UOS_BOARD_LINKER_HW}")
+set (_linker_qemu "${UOS_BOARD_LINKER_QEMU}")
+set (_ncpu        "${UOS_BOARD_NCPU}")
 
-# Which of the shared tests this board can build at all.
-#
-# Asked as a CAPABILITY question, never as a board question. A test declares
-# what it needs (apps.cmake); a board declares what it has (board.cmake); a
-# test is built when the board has everything it needs.
-#
-# So a board with no SD card, no USB device controller, or only one CPU needs
-# no edit here -- and on a single-CPU port the SMP-only tests simply do not
-# exist, rather than being built and then failing.
+set (_common_defines TRACE __ARM_EABI__ __ARM_ARCH_7A__ SEMIHOST)
+
+# The knobs a directory listing cannot express. Optional: a board whose tests
+# need nothing beyond the defaults has no tests.cmake.
+set (BOARD_TEST_NEED_DEVICES "")
+# Tests that bring their own start-up code and must NOT also get test/src/.
+set (BOARD_TEST_SELF_CONTAINED "")
+function (board_test_defines _app _out)
+  set (${_out} "" PARENT_SCOPE)
+endfunction ()
+if (EXISTS "${_test_dir}/tests.cmake")
+  include ("${_test_dir}/tests.cmake")
+endif ()
+
+# The support this board's tests share: one copy per board, not per test.
+file (GLOB _test_support CONFIGURE_DEPENDS "${_test_dir}/src/*.cpp")
+set (_test_includes "${_test_dir}/include")
+
+# One application per directory. include/ and src/ are the support above, not
+# applications, so they are skipped.
+file (GLOB _test_dirs LIST_DIRECTORIES true CONFIGURE_DEPENDS "${_test_dir}/*")
+
 set (_apps "")
-foreach (_app IN LISTS UOS_TEST_APPS)
-  set (_needs "")
-  if ("${_app}" IN_LIST UOS_TEST_APPS_SMP_ONLY)
-    list (APPEND _needs smp)
+foreach (_dir IN LISTS _test_dirs)
+  if (NOT IS_DIRECTORY "${_dir}")
+    continue ()
   endif ()
-  if ("${_app}" IN_LIST UOS_TEST_APPS_NEED_SD)
-    list (APPEND _needs sdcard)
+  get_filename_component (_app "${_dir}" NAME)
+  if (_app STREQUAL "include" OR _app STREQUAL "src")
+    continue ()
   endif ()
-  if ("${_app}" IN_LIST UOS_TEST_APPS_NEED_USB)
-    list (APPEND _needs usb-device)
+  file (GLOB _srcs CONFIGURE_DEPENDS "${_dir}/*.cpp")
+  if (NOT _srcs)
+    continue ()
   endif ()
+  list (APPEND _apps "${_app}")
 
-  set (_buildable TRUE)
-  foreach (_cap IN LISTS _needs)
-    if (NOT "${_cap}" IN_LIST UOS_BOARD_CAPS)
-      set (_buildable FALSE)
-    endif ()
-  endforeach ()
-  if (_buildable)
-    list (APPEND _apps "${_app}")
-  endif ()
-endforeach ()
+  board_test_defines ("${_app}" _app_defines)
 
-foreach (_app IN LISTS _apps)
-  uos_test_app_defines ("${_app}" _app_defines)
+  # A test carried over whole from the predecessor defines its own
+  # smp_install_boot_threads(); adding the board's shared copy would be a
+  # duplicate definition, and picking one would mean editing a test that
+  # already passed on hardware.
+  set (_app_support ${_test_support})
+  if ("${_app}" IN_LIST BOARD_TEST_SELF_CONTAINED)
+    set (_app_support "")
+  endif ()
 
   set (_libs micro-os-plus::aarch32)
-  if ("${_app}" IN_LIST UOS_TEST_APPS_NEED_SD
-      OR "${_app}" IN_LIST UOS_TEST_APPS_NEED_USB)
+  if ("${_app}" IN_LIST BOARD_TEST_NEED_DEVICES)
     list (APPEND _libs ${UOS_BOARD_DEVICES})
   endif ()
 
   foreach (_variant IN ITEMS qemu hwd)
     if (_variant STREQUAL "hwd")
-      # DEBUG_BOOT is opt-in, as the sources themselves assume ("default
-      # OFF, so the normal build stays quiet"): every early-boot marker
-      # is a semihosting trap, and under a JTAG probe each one costs real
-      # time. Turn it on only when bringing a board up.
+      # DEBUG_BOOT is opt-in: every early-boot marker is a semihosting trap,
+      # and under a JTAG probe each one costs real time. Turn it on only when
+      # bringing a board up.
       set (_variant_defines HW_BUILD)
       if (UOS_DEBUG_BOOT)
         list (APPEND _variant_defines DEBUG_BOOT)
       endif ()
       set (_variant_linker "${_linker_hwd}")
     else ()
-      # QEMU_BUILD says "this image runs under the emulator", which is not
-      # the same as "not hardware": a board whose silicon QEMU does not
-      # model builds its emulated image against the `virt` machine instead.
+      # QEMU_BUILD says "this image runs under the emulator", which is not the
+      # same as "not hardware": a board whose silicon QEMU does not model
+      # builds its emulated image against the `virt` machine instead.
       set (_variant_defines QEMU_BUILD)
       set (_variant_linker "${_linker_qemu}")
     endif ()
 
-    uos_add_test_app (
+    uos_add_app (
       "${_app}-${_variant}"
-      APP "${_app}"
+      SOURCES ${_srcs} ${_app_support}
       NCPU ${_ncpu}
       LINKER_SCRIPT "${_variant_linker}"
       DEFINES ${_common_defines} ${_app_defines} ${_variant_defines}
+      INCLUDES ${_test_includes}
       LIBRARIES ${_libs}
       OUTPUT_NAME "${_app}-${_variant}"
     )
@@ -105,89 +123,7 @@ endforeach ()
 
 list (LENGTH _apps _n)
 math (EXPR _n "${_n} * 2")
-message (STATUS "µOS++ III AArch32 tests: ${_n} targets, board=${BOARD}")
-
-# -----------------------------------------------------------------------------
-# Tests that belong to ONE board.
-#
-# Not every test is shareable. A board brings silicon nothing else has -- the
-# RK3506's GIC-400 SGIs, its CRU, its interrupt wiring -- and a test that
-# exercises that silicon is a board's test, not the port's. Those tests would
-# have to be smothered in #ifdef to live in test_smpl/common/, and each #ifdef
-# would be a board name in shared code, which is the thing this port spent a
-# week removing.
-#
-# So they live under the board that owns them:
-#
-#     boards/<id>/test/<name>/*.cpp        one directory per application
-#
-# Discovered by glob, like boards/<id>/board.cmake. A board with no such
-# directory builds nothing extra and this loop does not run; adding a test to
-# a board is adding a directory, and it cannot affect any other board because
-# no other board's build ever sees the path.
-#
-# They build in both variants, link the same board libraries as the shared
-# tests, and additionally see boards/<id>/test/include/ when it exists -- which
-# is where a board puts a header its own tests need and nothing else does.
-# -----------------------------------------------------------------------------
-
-file (GLOB _board_test_dirs LIST_DIRECTORIES true CONFIGURE_DEPENDS
-      "${_boards_dir}/test/*")
-
-set (_board_test_inc "")
-if (IS_DIRECTORY "${_boards_dir}/test/include")
-  set (_board_test_inc "${_boards_dir}/test/include")
-  list (REMOVE_ITEM _board_test_dirs "${_boards_dir}/test/include")
-endif ()
-
-set (_board_apps "")
-foreach (_dir IN LISTS _board_test_dirs)
-  if (NOT IS_DIRECTORY "${_dir}")
-    continue ()
-  endif ()
-  file (GLOB _srcs CONFIGURE_DEPENDS "${_dir}/*.cpp")
-  if (NOT _srcs)
-    continue ()
-  endif ()
-  get_filename_component (_app "${_dir}" NAME)
-  list (APPEND _board_apps "${_app}")
-
-  foreach (_variant IN ITEMS qemu hwd)
-    if (_variant STREQUAL "hwd")
-      set (_variant_defines HW_BUILD)
-      if (UOS_DEBUG_BOOT)
-        list (APPEND _variant_defines DEBUG_BOOT)
-      endif ()
-      set (_variant_linker "${_linker_hwd}")
-    else ()
-      set (_variant_defines QEMU_BUILD)
-      set (_variant_linker "${_linker_qemu}")
-    endif ()
-
-    uos_add_app (
-      "${_app}-${_variant}"
-      SOURCES ${_srcs}
-      NCPU ${_ncpu}
-      LINKER_SCRIPT "${_variant_linker}"
-      DEFINES ${_common_defines} ${_variant_defines}
-      INCLUDES ${_board_test_inc}
-      # NOT micro-os-plus::test-common: a board's own test is a whole
-      # application, carried over as it was written, and it brings its
-      # own smp_install_boot_threads(). Linking the shared one would be
-      # a duplicate definition, and choosing between them would mean
-      # editing a test that already passed on the board.
-      LIBRARIES micro-os-plus::aarch32 ${UOS_BOARD_DEVICES}
-      OUTPUT_NAME "${_app}-${_variant}"
-    )
-  endforeach ()
-endforeach ()
-
-list (LENGTH _board_apps _nb)
-if (_nb)
-  math (EXPR _nb "${_nb} * 2")
-  message (STATUS "µOS++ III AArch32 tests: ${_nb} more from boards/${BOARD}/test")
-endif ()
-
+message (STATUS "µOS++ III AArch32 tests: ${_n} targets, board=${BOARD}, from ${_test_dir}")
 
 # -----------------------------------------------------------------------------
 # QEMU boot shim.
