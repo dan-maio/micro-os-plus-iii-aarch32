@@ -157,7 +157,12 @@ foreach (_dir IN LISTS _test_dirs)
       NCPU ${_ncpu}
       LINKER_SCRIPT "${_variant_linker}"
       DEFINES ${_common_defines} ${_app_defines} ${_variant_defines}
-      INCLUDES ${_app_includes} ${_test_includes}
+      # ${_dir} is the application's own directory, which the predecessor's
+      # Makefiles all put on the include path as -I. -- an application whose
+      # headers sit beside its sources and includes them as <foo.hpp> needs
+      # it, and one that writes "foo.hpp" never notices. Each application is
+      # its own target, so this reaches no other.
+      INCLUDES ${_app_includes} ${_dir} ${_test_includes}
       LIBRARIES ${_libs}
       OUTPUT_NAME "${_app}-${_variant}"
     )
