@@ -18,8 +18,18 @@ BOARD="${BOARD:-rpi-zero-2w}"
 
 SCRIPT="$HERE/boards/$BOARD/qemu.sh"
 if [[ ! -x "$SCRIPT" ]]; then
-  echo "qemu.sh: test/boards/$BOARD has no qemu.sh" >&2
-  echo "available boards:" >&2
+  # Two different misses, and they deserve different answers. A board that
+  # exists but carries no qemu.sh is a hardware-only board -- QEMU models
+  # nothing useful of its silicon, so it has no emulated suite and its
+  # board.cmake sets no QEMU linker script either. Anything else is a name
+  # that is not a board of this port.
+  if [[ -f "$HERE/boards/$BOARD/board.cmake" ]]; then
+    echo "qemu.sh: $BOARD is tested on hardware -- it has no emulated suite." >&2
+    echo "         BOARD=$BOARD test/hw.sh <test>" >&2
+  else
+    echo "qemu.sh: $BOARD is not a board of this port" >&2
+  fi
+  echo "boards with an emulated suite:" >&2
   for d in "$HERE"/boards/*/; do
     b="$(basename "$d")"
     [[ -x "$d/qemu.sh" ]] && echo "  $b" >&2

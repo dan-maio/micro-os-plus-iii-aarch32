@@ -27,11 +27,18 @@ set (UOS_BOARD_NCPU  3)
 # it. It is NOT part of the port library; see the source sets below.
 set (UOS_BOARD_CAPS  smp sdcard usb-device led)
 
-# The emulated runs use QEMU's `virt` machine -- generic Cortex-A7, DRAM at
-# 0x4000_0000 -- because none of the RK3506's own blocks are modelled. The
-# hardware runs link for the Lyra's own map.
-set (UOS_BOARD_LINKER_HW   "${UOS_BOARD_SRC_DIR}/linker.ld")
-set (UOS_BOARD_LINKER_QEMU "${UOS_BOARD_SRC_DIR}/linker-qemu-virt.ld")
+# One linker script, because there is one place this board runs.
+#
+# There is deliberately no UOS_BOARD_LINKER_QEMU. QEMU models none of the
+# RK3506's own blocks -- the CRU, the GIC-400 at 0xFF58_0000, the DesignWare
+# SD host, the DWC2 gadget, the SRAM mailbox, the Cortex-M0 -- so an emulated
+# Lyra would be a generic Cortex-A7 wearing the name, and every test that
+# makes this board worth having would be exactly the part not modelled.
+#
+# test/CMakeLists.txt reads the silence: a board with no QEMU linker script
+# gets one image per test, `hwd`, and no emulated suite. This board is tested
+# on hardware.
+set (UOS_BOARD_LINKER_HW "${UOS_BOARD_SRC_DIR}/linker.ld")
 
 set (UOS_BOARD_LIBS  "")
 

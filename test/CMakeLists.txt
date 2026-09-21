@@ -45,6 +45,25 @@ set (_linker_hwd  "${UOS_BOARD_LINKER_HW}")
 set (_linker_qemu "${UOS_BOARD_LINKER_QEMU}")
 set (_ncpu        "${UOS_BOARD_NCPU}")
 
+# One image per test, or two.
+#
+# Most boards get both: `qemu` for the emulated suite and `hwd` for the probe.
+# A board whose board.cmake sets no UOS_BOARD_LINKER_QEMU gets only `hwd`,
+# because there is nowhere for the other image to run.
+#
+# That is not a limitation of QEMU's ARM support -- it is what the board IS.
+# The Luckfox Lyra is the case: QEMU models none of the RK3506's own blocks,
+# so an emulated Lyra would be a generic Cortex-A7 wearing the name, and
+# every test that makes the board worth having -- the DWC2 gadget, the SD
+# host, the Cortex-M0 mailbox -- would be exactly the part not emulated. The
+# board is tested on hardware, and says so by staying silent here rather than
+# by carrying a second linker script and a suite that cannot pass.
+if (_linker_qemu)
+  set (_variants qemu hwd)
+else ()
+  set (_variants hwd)
+endif ()
+
 set (_common_defines TRACE __ARM_EABI__ __ARM_ARCH_7A__ SEMIHOST)
 
 # The knobs a directory listing cannot express. Optional: a board whose tests
@@ -114,7 +133,7 @@ foreach (_dir IN LISTS _test_dirs)
     list (APPEND _libs ${UOS_BOARD_DEVICES})
   endif ()
 
-  foreach (_variant IN ITEMS qemu hwd)
+  foreach (_variant IN LISTS _variants)
     if (_variant STREQUAL "hwd")
       # DEBUG_BOOT is opt-in: every early-boot marker is a semihosting trap,
       # and under a JTAG probe each one costs real time. Turn it on only when
@@ -146,7 +165,8 @@ foreach (_dir IN LISTS _test_dirs)
 endforeach ()
 
 list (LENGTH _apps _n)
-math (EXPR _n "${_n} * 2")
+list (LENGTH _variants _nv)
+math (EXPR _n "${_n} * ${_nv}")
 message (STATUS "µOS++ III AArch32 tests: ${_n} targets, board=${BOARD}, from ${_test_dir}")
 
 # -----------------------------------------------------------------------------

@@ -113,9 +113,14 @@ endif ()
 # silent inheritance of another board's answer.
 include ("${CMAKE_CURRENT_SOURCE_DIR}/test/boards/${BOARD}/board.cmake")
 
+# UOS_BOARD_LINKER_QEMU is NOT here. A board that QEMU cannot usefully model
+# leaves it unset and is built for hardware only; test/CMakeLists.txt then
+# emits one image per test instead of two. Saying nothing is how a board says
+# it has no emulated target -- there is no second flag to keep in step with
+# it, and no way to claim one and not have one.
 foreach (_required IN ITEMS UOS_BOARD_SRC_DIR UOS_BOARD_FLAGS UOS_BOARD_NCPU
                             UOS_BOARD_CAPS UOS_BOARD_LINKER_HW
-                            UOS_BOARD_LINKER_QEMU UOS_BOARD_DEFINES)
+                            UOS_BOARD_DEFINES)
   if (NOT DEFINED ${_required})
     message (FATAL_ERROR
       "test/boards/${BOARD}/board.cmake does not set ${_required}.")
@@ -146,6 +151,7 @@ endforeach ()
 # the SD tests appear with no change to test/CMakeLists.txt.
 foreach (_v IN ITEMS UOS_BOARD_SRC_DIR UOS_BOARD_NCPU UOS_BOARD_CAPS
                      UOS_BOARD_LINKER_HW UOS_BOARD_LINKER_QEMU)
+  # LINKER_QEMU may legitimately be unset -- a hardware-only board.
   set (${_v} "${${_v}}" CACHE INTERNAL "board fact")
 endforeach ()
 
