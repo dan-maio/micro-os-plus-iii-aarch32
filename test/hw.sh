@@ -2,7 +2,7 @@
 # hw.sh — run the AArch32 hardware tests on real silicon.
 #
 # This is only the port half: the session itself is driven by the shared
-# runner in the kernel repository (test/run-hw.sh), which every port uses.
+# runner in the kernel repository (test_smpl/run-hw.sh), which every port uses.
 # Everything AArch32-specific is here.
 #
 # Two things differ per board, and both are below:
@@ -88,7 +88,7 @@ case "$BOARD" in
     UOS_HW_TARGET_FMT="rk3506.a7.%d" \
     UOS_HW_PRELOAD="$SANITIZE" \
     UOS_HW_ADAPTER_KHZ="${UOS_HW_ADAPTER_KHZ:-1000}" \
-    exec "$SMP_DIR/test/run-hw.sh" "$BUILD/test" "${1:-list}" "${2:-}"
+    exec "$SMP_DIR/test_smpl/run-hw.sh" "$BUILD/test" "${1:-list}" "${2:-}"
     ;;
 
   zero2w|rpi3b)
@@ -108,7 +108,7 @@ case "$BOARD" in
     UOS_HW_RESUME=cpsr \
     UOS_HW_NCPU=4 \
     UOS_HW_TARGET_FMT="bcm2837.cpu%d" \
-    exec "$SMP_DIR/test/run-hw.sh" "$BUILD/test" "${1:-list}" "${2:-}"
+    exec "$SMP_DIR/test_smpl/run-hw.sh" "$BUILD/test" "${1:-list}" "${2:-}"
     ;;
 
   *)

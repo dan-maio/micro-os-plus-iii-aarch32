@@ -1,20 +1,37 @@
 /**
  * @file  semihosting.hpp
- * @brief Minimal ARM semihosting console for the Raspberry Pi Zero 2W.
+ * @brief Minimal ARM semihosting console for the AArch32 port.
  *
- * Used ONLY for hardware (J-Link + OpenOCD) debug-in-RAM runs, so the UART
- * console output can also be captured on the host through OpenOCD's
- * semihosting channel ("arm semihosting enable"). Mirrored automatically by
- * uart.hpp when the build defines SEMIHOST (see hw.sh).
+ * Used ONLY for hardware (OpenOCD) debug-in-RAM runs, so the UART console
+ * output can also be captured on the host through OpenOCD's semihosting
+ * channel ("arm semihosting enable"). Mirrored automatically by uart.hpp when
+ * the build defines SEMIHOST (see hw.sh).
  *
- * Cortex-A53 in AArch32 under the OpenOCD "aarch64" debug wrapper: OpenOCD
- * expects the HLT #0xF000 semihosting breakpoint, NOT SVC 0x123456 (the
- * classic AArch32 trap), because the debug interface is AArch64.
+ * THE TRAP INSTRUCTION IS A PROPERTY OF THE DEBUGGER, NOT OF THE CPU.
+ * OpenOCD recognises whichever one the *target type* it is driving expects:
  *
- *   HLT #0xF000  (AArch32 encoding) = 0xE10F0070
+ *   cortex_a  (ARMv7-A)   SVC 0x123456   the classic AArch32 Angel trap
+ *   aarch64               HLT #0xF000    the ARMv8 encoding, 0xE10F0070
  *
- * When the binary is NOT run under a semihosting-enabled debugger every HLT
- * will halt the core forever, so a SEMIHOST build is only for hw.sh runs.
+ * SEMIHOST_TRAP_HLT selects the second, and the port's CMakeLists defines it
+ * per board:
+ *
+ *   Raspberry Pi Zero 2 W / Pi 3 B -- HLT. The Cortex-A53 are declared as
+ *     `aarch64` targets even for this 32-bit port, because the ARMv7
+ *     `cortex_a` target does not support the -cti option the BCM2837 needs
+ *     (boards/rpi-zero-2w/bcm2837-aarch32.cfg says so in its own header).
+ *
+ *   Luckfox Lyra B -- SVC. The Cortex-A7 are real `cortex_a` targets.
+ *
+ * Getting this wrong is not a missing console. `HLT #0xF000` has no encoding
+ * on ARMv7-A: the word 0xE10F0070 is UNDEFINED there, so the first character
+ * printed raises an Undefined Instruction exception -- and if the fault
+ * handler prints through this same path, it raises another one, and the board
+ * loops forever emitting the first line of a fault dump.
+ *
+ * When the binary is NOT run under a semihosting-enabled debugger the trap
+ * halts the core (HLT) or vectors to an unhandled SVC, so a SEMIHOST build is
+ * only for hw.sh runs.
  */
 #pragma once
 
@@ -22,6 +39,14 @@
 
 namespace semihosting
 {
+  // The trap, spelled once. Both forms leave r0/r1 as the Angel ABI wants
+  // them and clobber the same registers.
+#if defined(SEMIHOST_TRAP_HLT)
+#define UOS_SEMIHOST_TRAP ".arm\n .inst 0xE10F0070\n"   /* HLT #0xF000 */
+#else
+#define UOS_SEMIHOST_TRAP ".arm\n svc 0x123456\n"       /* Angel, ARMv7-A */
+#endif
+
   // SYS_WRITEC (0x03): write the single char pointed to by r1.
   inline void
   write_char (char c) noexcept
@@ -29,8 +54,7 @@ namespace semihosting
     register int r0 asm ("r0") = 0x03;
     register const char* r1 asm ("r1") = &c;
     asm volatile (
-        ".arm\n"
-        ".inst 0xE10F0070\n" // HLT #0xF000
+        UOS_SEMIHOST_TRAP
         : "+r" (r0)
         : "r" (r1)
         : "r2", "r3", "ip", "lr", "memory", "cc");
@@ -43,8 +67,7 @@ namespace semihosting
     register int r0 asm ("r0") = 0x04;
     register const char* r1 asm ("r1") = s;
     asm volatile (
-        ".arm\n"
-        ".inst 0xE10F0070\n" // HLT #0xF000
+        UOS_SEMIHOST_TRAP
         : "+r" (r0)
         : "r" (r1)
         : "r2", "r3", "ip", "lr", "memory", "cc");
@@ -60,8 +83,7 @@ namespace semihosting
     register int r0 asm ("r0") = 0x18;
     register const int* r1 asm ("r1") = &code;
     asm volatile (
-        ".arm\n"
-        ".inst 0xE10F0070\n" // HLT #0xF000
+        UOS_SEMIHOST_TRAP
         : "+r" (r0)
         : "r" (r1)
         : "r2", "r3", "ip", "lr", "memory", "cc");

@@ -3,7 +3,7 @@
 #
 # Twelve applications x two variants = 24 targets, all from one loop. The
 # application list and the per-test knobs come from the kernel repository
-# (test/apps.cmake), so this file never names a test.
+# (test_smpl/apps.cmake), so this file never names a test.
 #
 #   qemu  the build the QEMU suites run: semihosting on, no boot-card I/O
 #   hwd   the build for real hardware: HW_BUILD, so the SD tests use the

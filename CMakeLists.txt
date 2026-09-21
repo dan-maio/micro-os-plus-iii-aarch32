@@ -86,6 +86,20 @@ set_property (CACHE BOARD PROPERTY STRINGS zero2w rpi3b luckfox-lyra)
 
 # zero2w and rpi3b are the same silicon and the same port sources; they differ
 # by a linker script and a banner, so they share one board directory.
+#
+# SEMIHOST_TRAP_HLT is about the DEBUGGER, not the CPU. OpenOCD's semihosting
+# trap is whatever the target type it drives expects:
+#
+#   cortex_a (ARMv7-A)  SVC 0x123456   -- the classic AArch32 Angel trap
+#   aarch64             HLT #0xF000    -- the ARMv8 encoding
+#
+# The Pi's Cortex-A53 are declared as `aarch64` targets even for this 32-bit
+# port, because the ARMv7 `cortex_a` target does not support the -cti option
+# the BCM2837 needs (see boards/rpi-zero-2w/bcm2837-aarch32.cfg). So the Pi
+# wants HLT. The Lyra's Cortex-A7 are real `cortex_a` targets and want SVC --
+# and on an ARMv7-A core the HLT word 0xE10F0070 is simply UNDEFINED, so
+# getting this wrong is not a missing console, it is an undefined-instruction
+# exception on the first character printed.
 if (BOARD STREQUAL "luckfox-lyra")
   set (UOS_BOARD_DIR "luckfox-lyra")
   set (_board_flags -mcpu=cortex-a7 -marm -mfloat-abi=hard -mfpu=neon-vfpv4)
@@ -94,7 +108,7 @@ if (BOARD STREQUAL "luckfox-lyra")
 else ()
   set (UOS_BOARD_DIR "rpi-zero-2w")
   set (_board_flags -mcpu=cortex-a53 -marm -mfloat-abi=hard -mfpu=neon-fp-armv8)
-  set (_board_define SOC_BCM2837)
+  set (_board_define SOC_BCM2837 SEMIHOST_TRAP_HLT)
   set (_board_libs micro-os-plus::soc-bcm2837)
 endif ()
 set (UOS_BOARD_DIR "${UOS_BOARD_DIR}" CACHE INTERNAL "board source directory")
