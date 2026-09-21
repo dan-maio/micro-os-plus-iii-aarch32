@@ -13,10 +13,20 @@ set (UOS_BOARD_SRC_DIR "${CMAKE_CURRENT_LIST_DIR}")
 set (UOS_BOARD_FLAGS -mcpu=cortex-a7 -marm -mfloat-abi=hard -mfpu=neon-vfpv4)
 set (UOS_BOARD_NCPU  3)
 
-# No sdcard, no usb-device: micro-os-plus::devices is written against the
-# BCM2837's EMMC and DWC2, and the RK3506 has neither at those addresses.
-# The tests needing them drop out of the matrix on their own -- nothing in
-# test/CMakeLists.txt mentions this board.
+# CAPS is what THIS PORT CAN DRIVE on this board, not what the board carries.
+#
+# The Lyra B does have a microSD slot -- it is where the miniloader and the
+# Linux image normally live. What is missing is a driver: micro-os-plus::devices
+# has exactly one SD back end, src/sd.cpp, a polled Arasan SDHCI at the
+# BCM2837's 0x3F300000, and the RK3506 has a Synopsys DesignWare MSHC
+# somewhere else entirely. Same for usb-device: usb_dwc2.cpp is the Pi's DWC2
+# at the Pi's address.
+#
+# So `sdcard` is absent because nothing here can talk to the card, and it
+# comes back the day boards/luckfox-lyra/ (or devices/soc/rk3506/) gains a
+# dw_mmc driver behind the sd.hpp interface. Until then the five SD/USB tests
+# drop out of the matrix on their own -- nothing in test/CMakeLists.txt
+# mentions this board.
 set (UOS_BOARD_CAPS  smp led)
 
 # The emulated runs use QEMU's `virt` machine -- generic Cortex-A7, DRAM at

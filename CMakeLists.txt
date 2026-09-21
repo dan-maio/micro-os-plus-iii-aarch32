@@ -129,6 +129,11 @@ if (NOT IS_DIRECTORY "${UOS_BOARD_SRC_DIR}")
 endif ()
 
 # Published for test/CMakeLists.txt, which is a separate directory scope.
+# UOS_BOARD_CAPS is a statement about THIS PORT ON THIS BOARD -- the
+# drivers it can actually bring up -- not an inventory of the board's
+# connectors. A board with a microSD slot and no driver for it does not
+# declare `sdcard`; the day the driver lands, the capability does too and
+# the SD tests appear with no change to test/CMakeLists.txt.
 foreach (_v IN ITEMS UOS_BOARD_SRC_DIR UOS_BOARD_NCPU UOS_BOARD_CAPS
                      UOS_BOARD_LINKER_HW UOS_BOARD_LINKER_QEMU)
   set (${_v} "${${_v}}" CACHE INTERNAL "board fact")
