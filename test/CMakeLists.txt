@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------------
 # Test builds for the AArch32 port.
 #
-# Every board owns its tests. They live in boards/<id>/test/, one directory per
+# Every board owns its tests. They live in test/<board>/, one directory per
 # application, and this file builds whatever is there -- twice, once per
 # variant:
 #
@@ -28,18 +28,17 @@ option (UOS_DEBUG_BOOT "Compile the hwd builds with the early-boot markers" OFF)
 # rpi3b compiles rpi-zero-2w's src/ and include/ with -DBOARD_RPI3B, exactly as
 # the predecessor's `make BOARD=rpi3b` did.
 #
-# The TESTS are not shared that way. Every board has its own test/ directory,
-# under the board, so changing or adding a test reaches one board and no other.
-# That is why this is boards/${BOARD}/test and not ${UOS_BOARD_SRC_DIR}/test.
+# The TESTS are never shared that way. Each board has its own directory here --
+# test/<board>/ -- so changing or adding a test reaches one board and no other.
+# That is why this is test/${BOARD} and not ${UOS_BOARD_SRC_DIR}/test.
 set (_boards_dir "${UOS_BOARD_SRC_DIR}")
-get_filename_component (_test_dir
-  "${CMAKE_CURRENT_SOURCE_DIR}/../boards/${BOARD}/test" ABSOLUTE)
+set (_test_dir   "${CMAKE_CURRENT_SOURCE_DIR}/${BOARD}")
 
 if (NOT IS_DIRECTORY "${_test_dir}")
   message (FATAL_ERROR
-           "boards/${BOARD} has no test/ directory. Every board has one -- it "
-           "is where that board's test applications live, even when the board "
-           "shares its src/ and include/ with another.")
+           "test/${BOARD} does not exist. Every board has a directory here -- "
+           "it is where that board's test applications live, even when the "
+           "board shares its src/ and include/ with another.")
 endif ()
 
 set (_linker_hwd  "${UOS_BOARD_LINKER_HW}")

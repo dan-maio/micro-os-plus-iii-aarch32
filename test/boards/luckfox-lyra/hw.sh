@@ -4,8 +4,8 @@
 #
 # Every board has this script, with this interface:
 #
-#     boards/<id>/hw.sh list                 the tests this build has
-#     boards/<id>/hw.sh <app> [run-seconds]  run one
+#     test/boards/<id>/hw.sh list                 the tests this build has
+#     test/boards/<id>/hw.sh <app> [run-seconds]  run one
 #
 # The session is the shared runner (test_smpl/run-hw.sh); everything here is an
 # RK3506 fact.
@@ -16,14 +16,14 @@
 # ONE TEST PER POWER CYCLE: the secondaries are released once, by clearing
 # __smp_spin, and a second load cannot un-release them.
 #
-# Env:  BUILD=<dir>            the CMake build directory  (default: ../../build-lyra)
+# Env:  BUILD=<dir>            the CMake build directory  (default: test/build-lyra)
 #       UOS_HW_ADAPTER_KHZ=<n> SWD clock                  (default: 1000)
 # -----------------------------------------------------------------------------
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$HERE/../.." && pwd)"
-BUILD="${BUILD:-$ROOT/build-lyra}"
+ROOT="$(cd "$HERE/../../.." && pwd)"
+BUILD="${BUILD:-$ROOT/test/build-lyra}"
 
 TC="$(ls -d "$HOME"/.local/xPacks/@xpack-dev-tools/arm-none-eabi-gcc/15.*/.content/bin 2>/dev/null | sort -V | tail -1)"
 SMP_DIR="${UOS_SMP_DIR:-$(cd "$ROOT/.." && pwd)/micro-os-plus-iii-smp}"

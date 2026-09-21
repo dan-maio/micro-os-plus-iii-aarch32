@@ -4,8 +4,8 @@
 #
 # Every board has this script, with this interface:
 #
-#     boards/<id>/hw.sh list                 the tests this build has
-#     boards/<id>/hw.sh <app> [run-seconds]  run one
+#     test/boards/<id>/hw.sh list                 the tests this build has
+#     test/boards/<id>/hw.sh <app> [run-seconds]  run one
 #
 # All of it is board facts. The session itself is the shared runner,
 # micro-os-plus-iii-smp/test_smpl/run-hw.sh, which is the same file for every
@@ -24,8 +24,8 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$HERE/../.." && pwd)"
-BUILD="${BUILD:-$ROOT/build}"
+ROOT="$(cd "$HERE/../../.." && pwd)"
+BUILD="${BUILD:-$ROOT/test/build}"
 PROBE="${PROBE:-jlink}"
 
 case "$PROBE" in

@@ -62,7 +62,7 @@ add_subdirectory ("${UOS_DEVICES_DIR}" micro-os-plus-iii-devices)
 # instruction set is reached from a Broadcom BCM2837 running in 32-bit mode
 # and from a Rockchip RK3506. Everything that differs between them -- startup,
 # the page tables, the interrupt controller, the tick, how secondary cores are
-# released, the UART -- lives under boards/<dir>/. What does not differ stays
+# released, the UART -- lives under test/boards/<dir>/. What does not differ stays
 # in src/ and include/ and is compiled once for either.
 #
 # A core name is not an axis of its own: cortex-a53 and cortex-a7 are -mcpu
@@ -81,15 +81,15 @@ add_subdirectory ("${UOS_DEVICES_DIR}" micro-os-plus-iii-devices)
 # board is multi-CPU; only part of it is symmetric. The M0 is an AMP companion
 # reached through the hardware mailbox, which is why it appears solely as an
 # interrupt SOURCE, in smp_test_int5.
-# Boards are DISCOVERED, not listed. Every directory under boards/ that holds
+# Boards are DISCOVERED, not listed. Every directory under test/boards/ that holds
 # a board.cmake is a board, and that file is the only place its facts are
 # written: sources, CPU flags, core count, capabilities, linker scripts,
 # libraries and defines. Nothing here knows any board's name.
 #
 # A directory WITHOUT a board.cmake is not a board -- it is a source directory
-# several boards share, the way zero2w and rpi3b share boards/rpi-zero-2w/.
+# several boards share, the way rpi3b shares test/boards/rpi-zero-2w/.
 # That is the shape a port with many boards on few SoCs needs.
-file (GLOB _board_decls CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/boards/*/board.cmake")
+file (GLOB _board_decls CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/test/boards/*/board.cmake")
 set (_board_ids "")
 foreach (_decl IN LISTS _board_decls)
   get_filename_component (_dir "${_decl}" DIRECTORY)
@@ -105,27 +105,27 @@ if (NOT BOARD IN_LIST _board_ids)
   message (FATAL_ERROR
     "BOARD=${BOARD} is not a board of this port.\n"
     "Available: ${_board_ids}\n"
-    "A board is a directory under boards/ containing a board.cmake.")
+    "A board is a directory under test/boards/ containing a board.cmake.")
 endif ()
 
 # Each board.cmake sets this contract. Anything a board leaves unset that the
 # shared sources need becomes a compile error in src/board-contract.cpp, not a
 # silent inheritance of another board's answer.
-include ("${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD}/board.cmake")
+include ("${CMAKE_CURRENT_SOURCE_DIR}/test/boards/${BOARD}/board.cmake")
 
 foreach (_required IN ITEMS UOS_BOARD_SRC_DIR UOS_BOARD_FLAGS UOS_BOARD_NCPU
                             UOS_BOARD_CAPS UOS_BOARD_LINKER_HW
                             UOS_BOARD_LINKER_QEMU UOS_BOARD_DEFINES)
   if (NOT DEFINED ${_required})
     message (FATAL_ERROR
-      "boards/${BOARD}/board.cmake does not set ${_required}.")
+      "test/boards/${BOARD}/board.cmake does not set ${_required}.")
   endif ()
 endforeach ()
 
 get_filename_component (UOS_BOARD_SRC_DIR "${UOS_BOARD_SRC_DIR}" ABSOLUTE)
 if (NOT IS_DIRECTORY "${UOS_BOARD_SRC_DIR}")
   message (FATAL_ERROR
-    "boards/${BOARD}/board.cmake points at ${UOS_BOARD_SRC_DIR}, which does not exist.")
+    "test/boards/${BOARD}/board.cmake points at ${UOS_BOARD_SRC_DIR}, which does not exist.")
 endif ()
 
 # Published for test/CMakeLists.txt, which is a separate directory scope.
@@ -134,7 +134,7 @@ endif ()
 foreach (_cap_lib IN ITEMS sdcard usb-device)
   if ("${_cap_lib}" IN_LIST UOS_BOARD_CAPS AND NOT DEFINED UOS_BOARD_DEVICES)
     message (FATAL_ERROR
-             "boards/${BOARD}/board.cmake declares the `${_cap_lib}` capability "
+             "test/boards/${BOARD}/board.cmake declares the `${_cap_lib}` capability "
              "but no UOS_BOARD_DEVICES to provide it.")
   endif ()
 endforeach ()
@@ -180,7 +180,7 @@ target_sources (
         # from stranding the kernel spinlock, the release ordering in
         # switch_stacks() -- that the older copy did not. One copy cannot
         # drift. What genuinely differs, the interrupt controller, is
-        # boards/<board>/src/rtos/port_isr.cpp.
+        # test/boards/<board>/src/rtos/port_isr.cpp.
         src/context_switch.cpp
         src/exception_handler.cpp
         src/handlers.cpp
