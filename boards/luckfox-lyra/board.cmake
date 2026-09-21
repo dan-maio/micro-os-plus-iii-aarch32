@@ -13,21 +13,17 @@ set (UOS_BOARD_SRC_DIR "${CMAKE_CURRENT_LIST_DIR}")
 set (UOS_BOARD_FLAGS -mcpu=cortex-a7 -marm -mfloat-abi=hard -mfpu=neon-vfpv4)
 set (UOS_BOARD_NCPU  3)
 
-# CAPS is what THIS PORT CAN DRIVE on this board, not what the board carries.
+# CAPS is what THIS PORT CAN DRIVE on this board.
 #
-# The Lyra B does have a microSD slot -- it is where the miniloader and the
-# Linux image normally live. What is missing is a driver: micro-os-plus::devices
-# has exactly one SD back end, src/sd.cpp, a polled Arasan SDHCI at the
-# BCM2837's 0x3F300000, and the RK3506 has a Synopsys DesignWare MSHC
-# somewhere else entirely. Same for usb-device: usb_dwc2.cpp is the Pi's DWC2
-# at the Pi's address.
+# `sdcard` is here because the predecessor's cortex-a7 project drove this
+# board's microSD -- src/sdcard/sdmmc.cpp, a DesignWare MSHC driver at
+# 0xFF480000 -- and that driver is now devices/soc/rk3506/. It is reached
+# through micro-os-plus::devices-rk3506, which is the RK3506 SD host under the
+# same flatfs/FatFs layers the Pi uses.
 #
-# So `sdcard` is absent because nothing here can talk to the card, and it
-# comes back the day boards/luckfox-lyra/ (or devices/soc/rk3506/) gains a
-# dw_mmc driver behind the sd.hpp interface. Until then the five SD/USB tests
-# drop out of the matrix on their own -- nothing in test/CMakeLists.txt
-# mentions this board.
-set (UOS_BOARD_CAPS  smp led)
+# `usb-device` is still absent: the predecessor's RK3506 DWC2 gadget stack
+# (13 files under src/usb/) has not been carried over yet.
+set (UOS_BOARD_CAPS  smp sdcard led)
 
 # The emulated runs use QEMU's `virt` machine -- generic Cortex-A7, DRAM at
 # 0x4000_0000 -- because none of the RK3506's own blocks are modelled. The
@@ -36,6 +32,10 @@ set (UOS_BOARD_LINKER_HW   "${UOS_BOARD_SRC_DIR}/linker.ld")
 set (UOS_BOARD_LINKER_QEMU "${UOS_BOARD_SRC_DIR}/linker-qemu-virt.ld")
 
 set (UOS_BOARD_LIBS  "")
+
+# The driver set an application links when it needs this board's SD card or
+# USB: the RK3506 SD host under the same flatfs/FatFs layers the Pi uses.
+set (UOS_BOARD_DEVICES  micro-os-plus::devices-rk3506)
 
 # These Cortex-A7 are real OpenOCD `cortex_a` targets, which expect the
 # classic AArch32 Angel trap, SVC 0x123456. HLT #0xF000 has no encoding on

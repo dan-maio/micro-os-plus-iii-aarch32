@@ -129,6 +129,16 @@ if (NOT IS_DIRECTORY "${UOS_BOARD_SRC_DIR}")
 endif ()
 
 # Published for test/CMakeLists.txt, which is a separate directory scope.
+# A board that claims it can reach an SD card or a USB device must also say
+# which driver set does it, or the capability is a promise nothing keeps.
+foreach (_cap_lib IN ITEMS sdcard usb-device)
+  if ("${_cap_lib}" IN_LIST UOS_BOARD_CAPS AND NOT DEFINED UOS_BOARD_DEVICES)
+    message (FATAL_ERROR
+             "boards/${BOARD}/board.cmake declares the `${_cap_lib}` capability "
+             "but no UOS_BOARD_DEVICES to provide it.")
+  endif ()
+endforeach ()
+
 # UOS_BOARD_CAPS is a statement about THIS PORT ON THIS BOARD -- the
 # drivers it can actually bring up -- not an inventory of the board's
 # connectors. A board with a microSD slot and no driver for it does not

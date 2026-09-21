@@ -17,6 +17,10 @@ set (UOS_BOARD_LINKER_QEMU "${UOS_BOARD_SRC_DIR}/linker-rpi3b.ld")
 
 set (UOS_BOARD_LIBS  micro-os-plus::soc-bcm2837)
 
+# The driver set an application links when it needs the SD card or USB:
+# the BCM2837 SD host and DWC2, which is what these tests always linked.
+set (UOS_BOARD_DEVICES  micro-os-plus::devices)
+
 # BCM2837 has no GIC and no SGIs: a cross-core reschedule is a write to
      # the target core's local mailbox 0.
 set (UOS_BOARD_DEFINES

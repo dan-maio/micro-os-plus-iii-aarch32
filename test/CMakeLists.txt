@@ -69,7 +69,7 @@ foreach (_app IN LISTS _apps)
   set (_libs micro-os-plus::aarch32)
   if ("${_app}" IN_LIST UOS_TEST_APPS_NEED_SD
       OR "${_app}" IN_LIST UOS_TEST_APPS_NEED_USB)
-    list (APPEND _libs micro-os-plus::devices)
+    list (APPEND _libs ${UOS_BOARD_DEVICES})
   endif ()
 
   foreach (_variant IN ITEMS qemu hwd)
@@ -106,6 +106,88 @@ endforeach ()
 list (LENGTH _apps _n)
 math (EXPR _n "${_n} * 2")
 message (STATUS "µOS++ III AArch32 tests: ${_n} targets, board=${BOARD}")
+
+# -----------------------------------------------------------------------------
+# Tests that belong to ONE board.
+#
+# Not every test is shareable. A board brings silicon nothing else has -- the
+# RK3506's GIC-400 SGIs, its CRU, its interrupt wiring -- and a test that
+# exercises that silicon is a board's test, not the port's. Those tests would
+# have to be smothered in #ifdef to live in test_smpl/common/, and each #ifdef
+# would be a board name in shared code, which is the thing this port spent a
+# week removing.
+#
+# So they live under the board that owns them:
+#
+#     boards/<id>/test/<name>/*.cpp        one directory per application
+#
+# Discovered by glob, like boards/<id>/board.cmake. A board with no such
+# directory builds nothing extra and this loop does not run; adding a test to
+# a board is adding a directory, and it cannot affect any other board because
+# no other board's build ever sees the path.
+#
+# They build in both variants, link the same board libraries as the shared
+# tests, and additionally see boards/<id>/test/include/ when it exists -- which
+# is where a board puts a header its own tests need and nothing else does.
+# -----------------------------------------------------------------------------
+
+file (GLOB _board_test_dirs LIST_DIRECTORIES true CONFIGURE_DEPENDS
+      "${_boards_dir}/test/*")
+
+set (_board_test_inc "")
+if (IS_DIRECTORY "${_boards_dir}/test/include")
+  set (_board_test_inc "${_boards_dir}/test/include")
+  list (REMOVE_ITEM _board_test_dirs "${_boards_dir}/test/include")
+endif ()
+
+set (_board_apps "")
+foreach (_dir IN LISTS _board_test_dirs)
+  if (NOT IS_DIRECTORY "${_dir}")
+    continue ()
+  endif ()
+  file (GLOB _srcs CONFIGURE_DEPENDS "${_dir}/*.cpp")
+  if (NOT _srcs)
+    continue ()
+  endif ()
+  get_filename_component (_app "${_dir}" NAME)
+  list (APPEND _board_apps "${_app}")
+
+  foreach (_variant IN ITEMS qemu hwd)
+    if (_variant STREQUAL "hwd")
+      set (_variant_defines HW_BUILD)
+      if (UOS_DEBUG_BOOT)
+        list (APPEND _variant_defines DEBUG_BOOT)
+      endif ()
+      set (_variant_linker "${_linker_hwd}")
+    else ()
+      set (_variant_defines QEMU_BUILD)
+      set (_variant_linker "${_linker_qemu}")
+    endif ()
+
+    uos_add_app (
+      "${_app}-${_variant}"
+      SOURCES ${_srcs}
+      NCPU ${_ncpu}
+      LINKER_SCRIPT "${_variant_linker}"
+      DEFINES ${_common_defines} ${_variant_defines}
+      INCLUDES ${_board_test_inc}
+      # NOT micro-os-plus::test-common: a board's own test is a whole
+      # application, carried over as it was written, and it brings its
+      # own smp_install_boot_threads(). Linking the shared one would be
+      # a duplicate definition, and choosing between them would mean
+      # editing a test that already passed on the board.
+      LIBRARIES micro-os-plus::aarch32 ${UOS_BOARD_DEVICES}
+      OUTPUT_NAME "${_app}-${_variant}"
+    )
+  endforeach ()
+endforeach ()
+
+list (LENGTH _board_apps _nb)
+if (_nb)
+  math (EXPR _nb "${_nb} * 2")
+  message (STATUS "µOS++ III AArch32 tests: ${_nb} more from boards/${BOARD}/test")
+endif ()
+
 
 # -----------------------------------------------------------------------------
 # QEMU boot shim.

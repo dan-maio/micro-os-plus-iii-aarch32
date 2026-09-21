@@ -21,6 +21,10 @@ set (UOS_BOARD_LINKER_QEMU "${UOS_BOARD_SRC_DIR}/linker.ld")
 
 set (UOS_BOARD_LIBS  micro-os-plus::soc-bcm2837)
 
+# The driver set an application links when it needs the SD card or USB:
+# the BCM2837 SD host and DWC2, which is what these tests always linked.
+set (UOS_BOARD_DEVICES  micro-os-plus::devices)
+
 # The onboard green ACT LED is a plain SoC GPIO, number 29. led.hpp's own
 # fallback is GPIO16 -- header pin 36, for an externally wired LED -- which
 # blinks nothing on a bare board.
