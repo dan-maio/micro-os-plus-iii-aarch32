@@ -20,7 +20,7 @@
 #
 # The BCM2837's Cortex-A53 cores run here in AArch32 (ARMv7-A), which is what
 # lets this same port also serve the Cortex-A7 SoCs. Pick one with
-# Pick one with -DBOARD=zero2w (default), rpi3b or luckfox-lyra.
+# Pick one with -DBOARD=rpi-zero-2w (default), rpi3b or luckfox-lyra.
 #
 # Exports: micro-os-plus::aarch32
 # -----------------------------------------------------------------------------
@@ -71,7 +71,7 @@ add_subdirectory ("${UOS_DEVICES_DIR}" micro-os-plus-iii-devices)
 # Nor is the core COUNT, so it is not set here -- uos_add_app takes NCPU and
 # defines OS_NCPU:
 #
-#   zero2w / rpi3b    4x Cortex-A53      OS_NCPU=4
+#   rpi-zero-2w / rpi3b   4x Cortex-A53      OS_NCPU=4
 #   luckfox-lyra      3x Cortex-A7       OS_NCPU=3
 #
 # The Lyra also carries a Cortex-M0, and it is deliberately not counted. SMP
@@ -81,48 +81,66 @@ add_subdirectory ("${UOS_DEVICES_DIR}" micro-os-plus-iii-devices)
 # board is multi-CPU; only part of it is symmetric. The M0 is an AMP companion
 # reached through the hardware mailbox, which is why it appears solely as an
 # interrupt SOURCE, in smp_test_int5.
-set (BOARD "zero2w" CACHE STRING "Target board: zero2w, rpi3b or luckfox-lyra")
-set_property (CACHE BOARD PROPERTY STRINGS zero2w rpi3b luckfox-lyra)
+# Boards are DISCOVERED, not listed. Every directory under boards/ that holds
+# a board.cmake is a board, and that file is the only place its facts are
+# written: sources, CPU flags, core count, capabilities, linker scripts,
+# libraries and defines. Nothing here knows any board's name.
+#
+# A directory WITHOUT a board.cmake is not a board -- it is a source directory
+# several boards share, the way zero2w and rpi3b share boards/rpi-zero-2w/.
+# That is the shape a port with many boards on few SoCs needs.
+file (GLOB _board_decls CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/boards/*/board.cmake")
+set (_board_ids "")
+foreach (_decl IN LISTS _board_decls)
+  get_filename_component (_dir "${_decl}" DIRECTORY)
+  get_filename_component (_id "${_dir}" NAME)
+  list (APPEND _board_ids "${_id}")
+endforeach ()
+list (SORT _board_ids)
 
-# zero2w and rpi3b are the same silicon and the same port sources; they differ
-# by a linker script and a banner, so they share one board directory.
-#
-# SEMIHOST_TRAP_HLT is about the DEBUGGER, not the CPU. OpenOCD's semihosting
-# trap is whatever the target type it drives expects:
-#
-#   cortex_a (ARMv7-A)  SVC 0x123456   -- the classic AArch32 Angel trap
-#   aarch64             HLT #0xF000    -- the ARMv8 encoding
-#
-# The Pi's Cortex-A53 are declared as `aarch64` targets even for this 32-bit
-# port, because the ARMv7 `cortex_a` target does not support the -cti option
-# the BCM2837 needs (see boards/rpi-zero-2w/bcm2837-aarch32.cfg). So the Pi
-# wants HLT. The Lyra's Cortex-A7 are real `cortex_a` targets and want SVC --
-# and on an ARMv7-A core the HLT word 0xE10F0070 is simply UNDEFINED, so
-# getting this wrong is not a missing console, it is an undefined-instruction
-# exception on the first character printed.
-if (BOARD STREQUAL "luckfox-lyra")
-  set (UOS_BOARD_DIR "luckfox-lyra")
-  set (_board_flags -mcpu=cortex-a7 -marm -mfloat-abi=hard -mfpu=neon-vfpv4)
-  set (_board_define SOC_RK3506
-                     "PORT_GREETING=\"µOS++ Luckfox Lyra B (RK3506, Cortex-A7 SMP)\"")
-  set (_board_libs "")
-else ()
-  set (UOS_BOARD_DIR "rpi-zero-2w")
-  set (_board_flags -mcpu=cortex-a53 -marm -mfloat-abi=hard -mfpu=neon-fp-armv8)
-  set (_board_define SOC_BCM2837 SEMIHOST_TRAP_HLT
-                     "PORT_GREETING=\"µOS++ Raspberry Pi Zero 2W (BCM2837, Cortex-A53 AArch32 SMP)\"")
-  set (_board_libs micro-os-plus::soc-bcm2837)
-endif ()
-set (UOS_BOARD_DIR "${UOS_BOARD_DIR}" CACHE INTERNAL "board source directory")
+set (BOARD "rpi-zero-2w" CACHE STRING "Target board (one of: ${_board_ids})")
+set_property (CACHE BOARD PROPERTY STRINGS ${_board_ids})
 
-if (NOT IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/boards/${UOS_BOARD_DIR}")
+if (NOT BOARD IN_LIST _board_ids)
   message (FATAL_ERROR
-    "BOARD=${BOARD} wants boards/${UOS_BOARD_DIR}/, which does not exist.")
+    "BOARD=${BOARD} is not a board of this port.\n"
+    "Available: ${_board_ids}\n"
+    "A board is a directory under boards/ containing a board.cmake.")
 endif ()
+
+# Each board.cmake sets this contract. Anything a board leaves unset that the
+# shared sources need becomes a compile error in src/board-contract.cpp, not a
+# silent inheritance of another board's answer.
+include ("${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD}/board.cmake")
+
+foreach (_required IN ITEMS UOS_BOARD_SRC_DIR UOS_BOARD_FLAGS UOS_BOARD_NCPU
+                            UOS_BOARD_CAPS UOS_BOARD_LINKER_HW
+                            UOS_BOARD_LINKER_QEMU UOS_BOARD_DEFINES)
+  if (NOT DEFINED ${_required})
+    message (FATAL_ERROR
+      "boards/${BOARD}/board.cmake does not set ${_required}.")
+  endif ()
+endforeach ()
+
+get_filename_component (UOS_BOARD_SRC_DIR "${UOS_BOARD_SRC_DIR}" ABSOLUTE)
+if (NOT IS_DIRECTORY "${UOS_BOARD_SRC_DIR}")
+  message (FATAL_ERROR
+    "boards/${BOARD}/board.cmake points at ${UOS_BOARD_SRC_DIR}, which does not exist.")
+endif ()
+
+# Published for test/CMakeLists.txt, which is a separate directory scope.
+foreach (_v IN ITEMS UOS_BOARD_SRC_DIR UOS_BOARD_NCPU UOS_BOARD_CAPS
+                     UOS_BOARD_LINKER_HW UOS_BOARD_LINKER_QEMU)
+  set (${_v} "${${_v}}" CACHE INTERNAL "board fact")
+endforeach ()
+
+set (_board_flags  ${UOS_BOARD_FLAGS})
+set (_board_define ${UOS_BOARD_DEFINES})
+set (_board_libs   ${UOS_BOARD_LIBS})
 
 file (GLOB _board_sources CONFIGURE_DEPENDS
-      "boards/${UOS_BOARD_DIR}/src/*.cpp" "boards/${UOS_BOARD_DIR}/src/*.S"
-      "boards/${UOS_BOARD_DIR}/src/rtos/*.cpp")
+      "${UOS_BOARD_SRC_DIR}/src/*.cpp" "${UOS_BOARD_SRC_DIR}/src/*.S"
+      "${UOS_BOARD_SRC_DIR}/src/rtos/*.cpp")
 
 # -----------------------------------------------------------------------------
 # The port itself.
@@ -130,7 +148,7 @@ add_library (micro-os-plus-iii-aarch32-interface INTERFACE)
 
 target_include_directories (
   micro-os-plus-iii-aarch32-interface
-  INTERFACE "include" "boards/${UOS_BOARD_DIR}/include"
+  INTERFACE "include" "${UOS_BOARD_SRC_DIR}/include"
 )
 
 target_sources (
@@ -153,6 +171,10 @@ target_sources (
         src/handlers.cpp
         src/smp_secondary.cpp
         src/rtos/os-core.cpp
+        # No code. Fails the build the moment a board has not stated
+        # something the shared sources need, instead of letting it inherit
+        # the previous board's answer. See the file's own header.
+        src/board-contract.cpp
         # Per-board: startup, MMU tables, the tick, the IPI, and the port's half
         # of the scheduler. The kernel's own src/rtos/os-core.cpp is the
         # portable half and is compiled alongside it, exactly as the previous

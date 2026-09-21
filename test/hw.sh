@@ -7,7 +7,7 @@
 #
 # Two things differ per board, and both are below:
 #
-#   Raspberry Pi Zero 2 W / Pi 3 B  (BOARD=zero2w, the default)
+#   Raspberry Pi Zero 2 W / Pi 3 B  (BOARD=rpi-zero-2w, the default)
 #     Four Cortex-A53 in 32-bit mode. All four are examinable from the start
 #     -- QEMU's and the GPU armstub's cores are all parked in code -- so the
 #     runner halts, loads and resumes every one of them, zeroing the
@@ -42,7 +42,7 @@
 #
 # Usage:  test/hw.sh <app> [run-seconds]
 #         test/hw.sh list          the tests this build has
-# Env:    BOARD=zero2w (default) | rpi3b | luckfox-lyra
+# Env:    BOARD=rpi-zero-2w (default) | rpi3b | luckfox-lyra
 #         PROBE=jlink (default) | olimex      -- the Pi boards only
 #         BUILD=<dir>  the CMake build directory
 #                      (default: build, or build-lyra for the Lyra)
@@ -50,7 +50,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
-BOARD="${BOARD:-zero2w}"
+BOARD="${BOARD:-rpi-zero-2w}"
 PROBE="${PROBE:-jlink}"
 
 # gcc 15 xPack binutils, as the builds use; PATH otherwise.
@@ -91,7 +91,7 @@ case "$BOARD" in
     exec "$SMP_DIR/test_smpl/run-hw.sh" "$BUILD/test" "${1:-list}" "${2:-}"
     ;;
 
-  zero2w|rpi3b)
+  rpi-zero-2w|rpi3b)
     BUILD="${BUILD:-$ROOT/build}"
     case "$PROBE" in
       jlink)  CFG="$ROOT/boards/rpi-zero-2w/openocd-jlink-rpi3.cfg" ;;
@@ -112,7 +112,7 @@ case "$BOARD" in
     ;;
 
   *)
-    echo "hw.sh: BOARD must be zero2w, rpi3b or luckfox-lyra, not '$BOARD'" >&2
+    echo "hw.sh: BOARD must be rpi-zero-2w, rpi3b or luckfox-lyra, not '$BOARD'" >&2
     exit 2
     ;;
 esac

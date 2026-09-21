@@ -42,14 +42,25 @@ typedef struct {
 } os_port_smp_tlock_t;
 
 #define SMP_NO_OWNER  0xFFFFFFFFu
-/* The build chooses the core count (uos_add_app NCPU ...); four is the
- * BCM2837 default when nothing says otherwise. */
+
+/* OS_NCPU and OS_SMP_IPI_SGI are BOARD facts and have no default here.
+ *
+ * They used to. OS_NCPU defaulted to 4 -- the first board's core count -- so
+ * a board whose build forgot to say would have silently got a four-CPU SMP
+ * scheduler. On a single-core board that is not a wrong number, it is a
+ * different operating system. OS_SMP_IPI_SGI was hard-coded to 0, which
+ * means "local mailbox 0" on a BCM2837 and "GIC SGI 0" on an RK3506: two
+ * unrelated things that happened to share a number, so the second board
+ * worked by luck rather than by agreement.
+ *
+ * Both now come from boards/<board>/board.cmake, and a board that does not
+ * state them does not compile. See src/board-contract.cpp. */
 #ifndef OS_NCPU
-#define OS_NCPU       4
+#error "OS_NCPU is a board fact: set UOS_BOARD_NCPU in boards/<board>/board.cmake."
 #endif
-/* BCM2837 has no GIC/SGIs; cross-core reschedule uses local mailbox 0.
- * Kept named OS_SMP_IPI_SGI for source compatibility with the a7 port. */
-#define OS_SMP_IPI_SGI 0
+#if (OS_NCPU > 1) && !defined(OS_SMP_IPI_SGI)
+#error "OS_SMP_IPI_SGI is a board fact: add it to UOS_BOARD_DEFINES in boards/<board>/board.cmake -- the interrupt a core uses to ask another to reschedule."
+#endif
 
 // Select the SMP variant of the shared kernel (per-CPU current_thread_[OS_NCPU],
 // affinity picker, per-core idle). The single-CPU Cortex-M build leaves this
