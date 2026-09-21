@@ -1,9 +1,21 @@
 # -----------------------------------------------------------------------------
 # Raspberry Pi 3 B — BCM2837, 4x Cortex-A53 running in AArch32.
 #
-# Same silicon and same sources as rpi-zero-2w; a different linker script, and an
-# ACT LED that is not a SoC GPIO at all but VideoCore expander GPIO 130,
-# driven through the mailbox -- so no LED_PIN.
+# Same silicon and the same sources as rpi-zero-2w, selected by BOARD_RPI3B
+# exactly as the predecessor's `make BOARD=rpi3b` did. That define is the whole
+# difference, and it reaches four places:
+#
+#   include/led.hpp   a DIFFERENT LED driver -- the ACT LED is not a SoC GPIO
+#                     on this board but VideoCore expander GPIO 130, driven
+#                     through the ARM<->VC mailbox property channel
+#                     (tag 0x00038041). 91 lines, against 36 for a plain GPIO.
+#   include/uart.hpp  the banner strings.
+#   include/smp.hpp   PORT_RAM_END, the window a stack pointer is validated
+#                     against -- 1 GB here, 512 MiB on the Zero 2 W.
+#   src/mmu.cpp       the top of the Normal-memory mapping, the same number.
+#
+# plus linker-rpi3b.ld, whose RAM region is that number again. Those last three
+# are ONE fact written three times; they must be changed together.
 # -----------------------------------------------------------------------------
 
 set (UOS_BOARD_SRC_DIR "${CMAKE_CURRENT_LIST_DIR}/../rpi-zero-2w")

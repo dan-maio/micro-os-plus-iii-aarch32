@@ -9,8 +9,18 @@
 //
 // No integer suffix: context_switch.cpp pastes these straight into an
 // `ldr rN, =...` and the assembler will not take a 'u'.
+// BOARD_RPI3B (boards/rpi3b/board.cmake) selects the Pi 3 B, exactly as it
+// does for the LED driver below, the banner in uart.hpp and the DRAM top in
+// mmu.cpp. This window is the same fact as that DRAM top and as the linker
+// region: a 1 GB board is linked to 0x3F000000 and mapped to 0x3F000000, so a
+// stack pointer must be validated against 0x3F000000 too. Without this branch
+// every thread stack above 512 MiB looked corrupt to the context switch.
 #define PORT_RAM_BASE 0x00008000
-#define PORT_RAM_END  0x20000000
+#ifdef BOARD_RPI3B
+#define PORT_RAM_END  0x3F000000   // Pi 3 B, 1 GB: matches linker-rpi3b.ld
+#else
+#define PORT_RAM_END  0x20000000   // Pi Zero 2 W, 512 MiB: matches linker.ld
+#endif
 
 extern "C" {
 
