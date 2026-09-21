@@ -3,6 +3,12 @@
 #include <cstdint>
 #include <cmsis-plus/rtos/port/os-decls.h>
 
+// The DRAM window this board's images live in. The port checks a stack
+// pointer against it before switching to it, so a frame built from a wild
+// pointer stops here instead of somewhere unrecognisable later.
+#define PORT_RAM_BASE 0x00008000u
+#define PORT_RAM_END  0x20000000u
+
 extern "C" {
 
 // Per-core join/heartbeat status (0 = not started, 3 = scheduler entered).

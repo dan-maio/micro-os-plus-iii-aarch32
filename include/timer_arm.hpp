@@ -1,9 +1,15 @@
 /**
  * @file timer_arm.hpp
- * @brief ARM Generic Timer for Cortex-A7
+ * @brief ARM Generic Timer, ARMv7-A
  * @details Provides inline functions for accessing ARM Generic Timer registers
  *          including frequency control, timer value, and control register.
- * @note Uses ARM CP15 coprocessor registers for timer access
+ * @note Uses ARM CP15 coprocessor registers for timer access.
+ *
+ * Every accessor here is a CP15 instruction, which is a fact about ARMv7-A
+ * and not about any board, so there is one copy. What differs per board is
+ * how init() decides the counter's real rate -- the Pi has to measure it
+ * because its CNTFRQ lies -- and that lives in
+ * boards/<board>/src/timer_arm.cpp.
  */
 
 #ifndef TIMER_ARM_HPP

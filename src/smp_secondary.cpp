@@ -21,8 +21,13 @@ extern "C" void boot_core2()
     port_smp_secondary_start();
 }
 
+// A fourth core exists on the BCM2837 but not on the RK3506, whose SMP
+// cluster is three Cortex-A7. Compiling this on a three-core port would give
+// it a write one past the end of g_core_stage[OS_NCPU].
+#if OS_NCPU > 3
 extern "C" void boot_core3()
 {
     g_core_stage[3] = 3;
     port_smp_secondary_start();
 }
+#endif

@@ -20,7 +20,7 @@
 #
 # The BCM2837's Cortex-A53 cores run here in AArch32 (ARMv7-A), which is what
 # lets this same port also serve the Cortex-A7 SoCs. Pick one with
-# -DUOS_SOC=bcm2837 (default) or -DUOS_SOC=rk3506.
+# Pick one with -DBOARD=zero2w (default), rpi3b or luckfox-lyra.
 #
 # Exports: micro-os-plus::aarch32
 # -----------------------------------------------------------------------------
@@ -58,36 +58,55 @@ add_subdirectory ("${UOS_SMP_DIR}" micro-os-plus-iii-smp)
 add_subdirectory ("${UOS_DEVICES_DIR}" micro-os-plus-iii-devices)
 
 # -----------------------------------------------------------------------------
-# Which silicon. This port is ARMv7-A, and ARMv7-A is not one SoC: the same
-# instruction set is reached from a Broadcom BCM2837 running in 32-bit mode and
-# from a Rockchip RK3506. What differs between them -- the interrupt
-# controller, the timer, the way secondary cores are released, the UART, the
-# page tables -- lives under soc/<name>/. What does not differ stays in src/
-# and include/, compiled once for either.
-set (UOS_SOC "bcm2837" CACHE STRING "Target SoC: bcm2837 or rk3506")
-set_property (CACHE UOS_SOC PROPERTY STRINGS bcm2837 rk3506)
+# Which board. This port is ARMv7-A, and ARMv7-A is not one machine: the same
+# instruction set is reached from a Broadcom BCM2837 running in 32-bit mode
+# and from a Rockchip RK3506. Everything that differs between them -- startup,
+# the page tables, the interrupt controller, the tick, how secondary cores are
+# released, the UART -- lives under boards/<dir>/. What does not differ stays
+# in src/ and include/ and is compiled once for either.
+#
+# A core name is not an axis of its own: cortex-a53 and cortex-a7 are -mcpu
+# flags a board chooses.
+#
+# Nor is the core COUNT, so it is not set here -- uos_add_app takes NCPU and
+# defines OS_NCPU:
+#
+#   zero2w / rpi3b    4x Cortex-A53      OS_NCPU=4
+#   luckfox-lyra      3x Cortex-A7       OS_NCPU=3
+#
+# The Lyra also carries a Cortex-M0, and it is deliberately not counted. SMP
+# needs identical, cache-coherent peers: the three A7s are identical, so they
+# are the SMP domain. The M0 is not -- different ISA, outside the coherency
+# domain -- so it can be neither scheduled on nor sent an IPI as a peer. The
+# board is multi-CPU; only part of it is symmetric. The M0 is an AMP companion
+# reached through the hardware mailbox, which is why it appears solely as an
+# interrupt SOURCE, in smp_test_int5.
+set (BOARD "zero2w" CACHE STRING "Target board: zero2w, rpi3b or luckfox-lyra")
+set_property (CACHE BOARD PROPERTY STRINGS zero2w rpi3b luckfox-lyra)
 
-if (NOT IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/soc/${UOS_SOC}")
-  message (FATAL_ERROR
-    "UOS_SOC=${UOS_SOC} has no soc/${UOS_SOC}/ directory in this port.")
-endif ()
-
-# Per-SoC facts the shared code cannot infer. -mcpu differs because the two
-# parts are different cores that happen to share an instruction set; SOC_* is
-# what the few #ifdefs in src/ test.
-if (UOS_SOC STREQUAL "rk3506")
-  set (_soc_flags -mcpu=cortex-a7 -marm -mfloat-abi=hard -mfpu=neon-vfpv4)
-  set (_soc_define SOC_RK3506)
-  set (_soc_libs "")
+# zero2w and rpi3b are the same silicon and the same port sources; they differ
+# by a linker script and a banner, so they share one board directory.
+if (BOARD STREQUAL "luckfox-lyra")
+  set (UOS_BOARD_DIR "luckfox-lyra")
+  set (_board_flags -mcpu=cortex-a7 -marm -mfloat-abi=hard -mfpu=neon-vfpv4)
+  set (_board_define SOC_RK3506)
+  set (_board_libs "")
 else ()
-  set (_soc_flags -mcpu=cortex-a53 -marm -mfloat-abi=hard -mfpu=neon-fp-armv8)
-  set (_soc_define SOC_BCM2837)
-  set (_soc_libs micro-os-plus::soc-bcm2837)
+  set (UOS_BOARD_DIR "rpi-zero-2w")
+  set (_board_flags -mcpu=cortex-a53 -marm -mfloat-abi=hard -mfpu=neon-fp-armv8)
+  set (_board_define SOC_BCM2837)
+  set (_board_libs micro-os-plus::soc-bcm2837)
+endif ()
+set (UOS_BOARD_DIR "${UOS_BOARD_DIR}" CACHE INTERNAL "board source directory")
+
+if (NOT IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/boards/${UOS_BOARD_DIR}")
+  message (FATAL_ERROR
+    "BOARD=${BOARD} wants boards/${UOS_BOARD_DIR}/, which does not exist.")
 endif ()
 
-file (GLOB _soc_sources CONFIGURE_DEPENDS
-      "soc/${UOS_SOC}/src/*.cpp" "soc/${UOS_SOC}/src/*.S"
-      "soc/${UOS_SOC}/src/rtos/*.cpp")
+file (GLOB _board_sources CONFIGURE_DEPENDS
+      "boards/${UOS_BOARD_DIR}/src/*.cpp" "boards/${UOS_BOARD_DIR}/src/*.S"
+      "boards/${UOS_BOARD_DIR}/src/rtos/*.cpp")
 
 # -----------------------------------------------------------------------------
 # The port itself.
@@ -95,7 +114,7 @@ add_library (micro-os-plus-iii-aarch32-interface INTERFACE)
 
 target_include_directories (
   micro-os-plus-iii-aarch32-interface
-  INTERFACE "include" "soc/${UOS_SOC}/include"
+  INTERFACE "include" "boards/${UOS_BOARD_DIR}/include"
 )
 
 target_sources (
@@ -105,19 +124,28 @@ target_sources (
         # is real: its two SoC versions were byte-identical, 327 lines, same
         # checksum. handlers.cpp, context_switch.cpp and smp_secondary.cpp
         # differ by a dozen lines each and carry them as #ifdefs.
+        #
+        # src/rtos/os-core.cpp is the port's half of the scheduler. It used to
+        # be a per-board file, and the two copies had drifted: the Pi's had
+        # fixes -- the full d0-d31 VFP frame, the deferral that keeps a switch
+        # from stranding the kernel spinlock, the release ordering in
+        # switch_stacks() -- that the older copy did not. One copy cannot
+        # drift. What genuinely differs, the interrupt controller, is
+        # boards/<board>/src/rtos/port_isr.cpp.
         src/context_switch.cpp
         src/exception_handler.cpp
         src/handlers.cpp
         src/smp_secondary.cpp
-        # Per-SoC: startup, MMU tables, the tick, the IPI, and the port's half
+        src/rtos/os-core.cpp
+        # Per-board: startup, MMU tables, the tick, the IPI, and the port's half
         # of the scheduler. The kernel's own src/rtos/os-core.cpp is the
         # portable half and is compiled alongside it, exactly as the previous
         # Makefiles did.
-        ${_soc_sources}
+        ${_board_sources}
 )
 
 target_compile_definitions (
-  micro-os-plus-iii-aarch32-interface INTERFACE ${_soc_define}
+  micro-os-plus-iii-aarch32-interface INTERFACE ${_board_define}
 )
 
 target_compile_options (
@@ -125,14 +153,14 @@ target_compile_options (
   # Only the silicon. The flags every bare-metal application shares
   # (-O2, -ffunction-sections, -fno-exceptions, -nostartfiles, ...) are
   # set once by uos_add_app.
-  INTERFACE ${_soc_flags}
+  INTERFACE ${_board_flags}
 )
 
 # The same machine flags at link time: the driver has to pick the matching
 # multilib, or the link fails on the float ABI.
 target_link_options (
   micro-os-plus-iii-aarch32-interface
-  INTERFACE ${_soc_flags}
+  INTERFACE ${_board_flags}
 )
 
 target_link_libraries (
@@ -143,7 +171,7 @@ target_link_libraries (
         # AArch64 port's. This project supplies os-c-decls.h and os-inlines.h,
         # which are where the word size and the instructions actually live.
         micro-os-plus::port-smp-decls
-        ${_soc_libs}
+        ${_board_libs}
 )
 
 add_library (micro-os-plus::aarch32 ALIAS micro-os-plus-iii-aarch32-interface)
@@ -153,4 +181,4 @@ if (PROJECT_IS_TOP_LEVEL AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/CMakeLists
   add_subdirectory (test)
 endif ()
 
-message (STATUS "µOS++ III AArch32 port: micro-os-plus::aarch32, SoC ${UOS_SOC}")
+message (STATUS "µOS++ III AArch32 port: micro-os-plus::aarch32, board ${BOARD}")

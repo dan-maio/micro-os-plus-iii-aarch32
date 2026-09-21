@@ -9,14 +9,14 @@
 #   hwd   the build for real hardware: HW_BUILD, so the SD tests use the
 #         existing FAT32 boot partition, plus the early-boot asm markers
 #
-# BOARD selects the silicon: zero2w (default) or rpi3b.
+# BOARD selects the silicon: zero2w (default), rpi3b or luckfox-lyra.
 # -----------------------------------------------------------------------------
 
-set (BOARD "zero2w" CACHE STRING "Target board: zero2w or rpi3b")
+# BOARD is declared by the port, above: it picks the board directory the port
+# compiles, so the port needs it before this directory is added.
 option (UOS_DEBUG_BOOT "Compile the hwd builds with the early-boot markers" OFF)
-set_property (CACHE BOARD PROPERTY STRINGS zero2w rpi3b)
 
-set (_boards_dir "${UOS_AARCH32_ROOT}/boards/rpi-zero-2w")
+set (_boards_dir "${UOS_AARCH32_ROOT}/boards/${UOS_BOARD_DIR}")
 # Which LED a test blinks is a fact about the board, not about the test, so
 # it is set here for every test rather than per application.
 #
@@ -27,20 +27,51 @@ set (_boards_dir "${UOS_AARCH32_ROOT}/boards/rpi-zero-2w")
 #           GPIO 130, driven through the mailbox, so LED_PIN does not apply.
 set (LED_PIN 29 CACHE STRING "GPIO driven as the user LED (zero2w only)")
 
+# Every other board fact a test build needs: where the image is linked for
+# each variant, how many CPUs the scheduler has, and the board #define.
 if (BOARD STREQUAL "rpi3b")
-  set (_linker "${_boards_dir}/linker-rpi3b.ld")
+  set (_linker_hwd  "${_boards_dir}/linker-rpi3b.ld")
+  set (_linker_qemu "${_boards_dir}/linker-rpi3b.ld")
   set (_board_defines BOARD_RPI3B)
+  set (_ncpu 4)
+elseif (BOARD STREQUAL "luckfox-lyra")
+  # Three CPUs, not four. The RK3506 also carries a Cortex-M0, but it is a
+  # different ISA outside the A7 coherency domain: it cannot take an IPI as
+  # a peer and the scheduler cannot place a thread on it. It is the board
+  # that is multi-core; the SMP cluster is the three identical A7s.
+  #
+  # The emulated runs use QEMU's `virt` machine -- generic Cortex-A7, RAM at
+  # 0x4000_0000 -- because none of the RK3506's own blocks are modelled. The
+  # hardware runs link for the Lyra's own DRAM map.
+  set (_linker_hwd  "${_boards_dir}/linker.ld")
+  set (_linker_qemu "${_boards_dir}/linker-qemu-virt.ld")
+  set (_board_defines "")
+  set (_ncpu 3)
 else ()
-  set (_linker "${_boards_dir}/linker.ld")
+  set (_linker_hwd  "${_boards_dir}/linker.ld")
+  set (_linker_qemu "${_boards_dir}/linker.ld")
   set (_board_defines LED_PIN=${LED_PIN})
+  set (_ncpu 4)
 endif ()
 
-# Shared by every test on this port. Semihosting is on by default, as it was
-# in the Makefiles: the console reaches the emulator or the OpenOCD log, and a
-# test ends its run with a semihosted exit as soon as it has a RESULT.
 set (_common_defines TRACE __ARM_EABI__ __ARM_ARCH_7A__ SEMIHOST ${_board_defines})
 
-foreach (_app IN LISTS UOS_TEST_APPS)
+# Which of the shared tests this board can build at all.
+#
+# The SD and USB tests link micro-os-plus::devices, and its backends are
+# written against the BCM2837's EMMC and DWC2 -- the RK3506 has neither at
+# those addresses. Until those drivers grow a second backend, the Lyra
+# builds the SoC-neutral subset: the tests that only need CPUs, a timer and
+# a console. That is also the subset its predecessor project ever had.
+set (_apps ${UOS_TEST_APPS})
+if (BOARD STREQUAL "luckfox-lyra")
+  foreach (_skip IN LISTS UOS_TEST_APPS_NEED_SD)
+    list (REMOVE_ITEM _apps "${_skip}")
+  endforeach ()
+  list (REMOVE_ITEM _apps smp-mat-sdcard-test usb_test)
+endif ()
+
+foreach (_app IN LISTS _apps)
   uos_test_app_defines ("${_app}" _app_defines)
 
   set (_libs micro-os-plus::aarch32)
@@ -58,15 +89,20 @@ foreach (_app IN LISTS UOS_TEST_APPS)
       if (UOS_DEBUG_BOOT)
         list (APPEND _variant_defines DEBUG_BOOT)
       endif ()
+      set (_variant_linker "${_linker_hwd}")
     else ()
-      set (_variant_defines "")
+      # QEMU_BUILD says "this image runs under the emulator", which is not
+      # the same as "not hardware": a board whose silicon QEMU does not
+      # model builds its emulated image against the `virt` machine instead.
+      set (_variant_defines QEMU_BUILD)
+      set (_variant_linker "${_linker_qemu}")
     endif ()
 
     uos_add_test_app (
       "${_app}-${_variant}"
       APP "${_app}"
-      NCPU 4
-      LINKER_SCRIPT "${_linker}"
+      NCPU ${_ncpu}
+      LINKER_SCRIPT "${_variant_linker}"
       DEFINES ${_common_defines} ${_app_defines} ${_variant_defines}
       LIBRARIES ${_libs}
       OUTPUT_NAME "${_app}-${_variant}"
@@ -74,7 +110,7 @@ foreach (_app IN LISTS UOS_TEST_APPS)
   endforeach ()
 endforeach ()
 
-list (LENGTH UOS_TEST_APPS _n)
+list (LENGTH _apps _n)
 math (EXPR _n "${_n} * 2")
 message (STATUS "µOS++ III AArch32 tests: ${_n} targets, board=${BOARD}")
 
@@ -88,8 +124,12 @@ message (STATUS "µOS++ III AArch32 tests: ${_n} targets, board=${BOARD}")
 #
 # It is built with the *AArch64* toolchain, which is why it is a custom command
 # rather than a target of this project.
+#
+# It is also purely a Pi problem. The Luckfox Lyra runs under QEMU's `virt`
+# machine, whose Cortex-A7 cores start in AArch32 because that is the only
+# state an A7 has -- so there is nothing to drop out of, and no shim.
 file (GLOB _a64_bins "$ENV{HOME}/.local/xPacks/@xpack-dev-tools/aarch64-none-elf-gcc/*/.content/bin")
-if (_a64_bins)
+if (_a64_bins AND EXISTS "${_boards_dir}/qemu-raspi3-shim/shim.S")
   list (SORT _a64_bins COMPARE NATURAL ORDER DESCENDING)
   list (GET _a64_bins 0 _a64_bin)
   set (_shim_src "${_boards_dir}/qemu-raspi3-shim")

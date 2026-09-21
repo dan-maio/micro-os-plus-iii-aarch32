@@ -1,4 +1,11 @@
 /*
+ * os-core.cpp - the port's half of the µOS++ III SMP scheduler, AArch32.
+ *
+ * Shared by every board this port builds for. The interrupt-controller half
+ * -- which interrupt fired, how it is acknowledged -- is the one thing that
+ * differs between a BCM2837 (per-core local IRQ source register, no GIC) and
+ * an RK3506 (GIC-400), and it lives in boards/<board>/src/rtos/port_isr.cpp.
+ *
  * This file is part of the µOS++ project (https://micro-os-plus.github.io/).
  * Copyright (c) Liviu Ionescu. All rights reserved.
  * Copyright (c) 2026 Dan. All rights reserved.
@@ -15,8 +22,8 @@
 // the C++ <os.h>, so include them explicitly for os_thread_t (used below as
 // sized storage for the boot/fake thread contexts).
 #include <cmsis-plus/rtos/os-c-decls.h>
+#include <port_ctx.hpp>
 #include <timer_arm.hpp>
-#include <bcm_irq.hpp>
 #include <uart.hpp>
 
 // Forward declarations of reference functions
@@ -28,14 +35,14 @@ extern os::rtos::thread* os_idle_thread;
 
 // Context switch pending flags, one per core
 extern "C" {
-volatile unsigned _port_ctx_pending[OS_NCPU] = {0, 0, 0, 0};
-volatile bool _in_isr[OS_NCPU] = {false, false, false, false};
+volatile unsigned _port_ctx_pending[OS_NCPU] = {};
+volatile bool _in_isr[OS_NCPU] = {};
 
 /* Per-core "alive" flag: set on this core's first 1ms timer tick, i.e. once
  * it has completed secondary bring-up and is scheduling with interrupts on.
  * smp::start_secondary_cores() waits on it to release cores one at a time
  * (avoids simultaneous first-switch idle-thread claim races). */
-volatile uint32_t _port_core_alive[OS_NCPU] = {0, 0, 0, 0};
+volatile uint32_t _port_core_alive[OS_NCPU] = {};
 
 /* SMP deferred publish slots (per CPU). The scheduler stages
  * {&old_thread->stack_ptr, frame_sp} here; the asm restore path
@@ -43,44 +50,12 @@ volatile uint32_t _port_core_alive[OS_NCPU] = {0, 0, 0, 0};
  * only AFTER this CPU's SP has left the outgoing thread's stack.
  * Publishing earlier would let another core run the outgoing thread
  * on the very stack our remaining kernel frames still occupy. */
-volatile uint32_t _smp_pub_addr[OS_NCPU] = {0, 0, 0, 0};
-volatile uint32_t _smp_pub_val[OS_NCPU]  = {0, 0, 0, 0};
+volatile uint32_t _smp_pub_addr[OS_NCPU] = {};
+volatile uint32_t _smp_pub_val[OS_NCPU]  = {};
 }
 
 static_assert(sizeof(os_thread_t) == sizeof(os::rtos::thread),
               "CRITICAL ERROR: Size mismatch between C os_thread_t and C++ rtos::thread!");
-
-/* Saved context frame, low address (= the saved SP) first. Must mirror the
- * push/vpush order in irq_handler() (handlers.cpp) and port_ctx_switchHandler()
- * (context_switch.cpp), which build the frame back-to-front:
- *
- *   push  {r0-r12, lr}   ->  r[13] + lr   (highest addresses)
- *   push  {r2, lr}       ->  cpsr, pc
- *   push  {r2, r3}       ->  fpscr, pad
- *   vpush {d16-d31}      ->  vfp_hi
- *   vpush {d0-d15}       ->  vfp          (lowest, SP points here)
- *
- * Both halves of the VFP/NEON register file are saved: d0-d15 are the AAPCS
- * argument/callee-saved doubles, but d16-d31 (q8-q15) are equally live in
- * NEON code, and a *preemptive* switch can land anywhere -- saving only the
- * low half silently corrupts a thread interrupted mid-NEON. */
-struct ctx_t
-{
-  uint32_t vfp[32];    /* d0-d15  stored as 32 x 32-bit words (128 bytes) */
-  uint32_t vfp_hi[32]; /* d16-d31 stored as 32 x 32-bit words (128 bytes) */
-  uint32_t fpscr;
-  uint32_t pad;    /* alignment padding — matches push {r2, r3} in context switch */
-  uint32_t cpsr;
-  uint32_t pc;
-  uint32_t r[13]; /* r0 - r12 */
-  uint32_t lr;
-};
-
-/* Derived from ctx_t so the frame checks below cannot drift away from the
- * layout the assembly actually builds. */
-static constexpr std::size_t ctx_cpsr_word
-    = offsetof (ctx_t, cpsr) / sizeof (uint32_t);
-static constexpr std::size_t ctx_size_bytes = sizeof (ctx_t);
 
 // Reopen and declare scheduler member
 namespace os
@@ -417,111 +392,11 @@ extern "C" void* port_switch_stacks(void* sp)
   return os::rtos::port::scheduler::switch_stacks(static_cast<os::rtos::port::stack::element_t*>(sp));
 }
 
-// Validate context frame helper (for debugging/safety check)
-static void validate_context(uint32_t *new_sp, uint32_t *old_sp)
-{
-  if (new_sp < (uint32_t*)0x00008000 || new_sp >= (uint32_t*)0x20000000)
-    {
-      __asm__ volatile("cpsid if" ::: "memory");
-      uart::uart1 << "\n!!! CORRUPT STACK POINTER !!!\n";
-      uart::uart1 << "  new_sp=0x"; uart::uart1.print_hex((uint32_t)new_sp, 8);
-      uart::uart1 << "  old_sp=0x"; uart::uart1.print_hex((uint32_t)old_sp, 8);
-      uart::uart1 << "\n";
-      while (1) __asm__ volatile("wfi");
-    }
-
-  uint32_t saved_cpsr = new_sp[ctx_cpsr_word]; /* CPSR word inside ctx_t */
-  uint32_t mode = saved_cpsr & 0x1F;
-
-  if (mode == 0x13)
-    return;  // Valid SVC mode
-
-  // Halt on corrupt context
-  __asm__ volatile("cpsid if" ::: "memory");
-  uart::uart1 << "\n!!! CORRUPT CONTEXT FRAME !!!\n";
-  uart::uart1 << "  new_sp=0x"; uart::uart1.print_hex((uint32_t)new_sp, 8);
-  uart::uart1 << "  old_sp=0x"; uart::uart1.print_hex((uint32_t)old_sp, 8);
-  uart::uart1 << "  saved_cpsr=0x"; uart::uart1.print_hex(saved_cpsr, 8);
-  uart::uart1 << "\n";
-  while (1) __asm__ volatile("wfi");
-}
-
+// validate_context(), port_external_irq_handler() and port_isr_handler() are
+// the only parts of this file that depend on the interrupt controller, so
+// they live per board in boards/<board>/src/rtos/port_isr.cpp. Everything
+// above and below is the same on every ARMv7-A board this port runs on.
 extern "C" void os_systick_handler (void);
-
-// Weak default for external (non-timer, non-IPI) IRQs — override per project
-extern "C" [[gnu::weak]] void port_external_irq_handler(uint32_t source)
-{
-    (void)source;
-}
-
-// C-style ISR handler called from assembly irq_handler.
-//
-// BCM2837 has no GIC: the taken IRQ is identified from the per-core local
-// "IRQ source" register. Two sources drive the scheduler — the generic-timer
-// PPI (CNTPNSIRQ) and mailbox 0 (the reschedule IPI). The timer is re-armed by
-// writing CNTP_TVAL; the mailbox is cleared via the mailbox read/clear reg.
-extern "C" uint32_t * port_isr_handler(uint32_t *current_sp)
-{
-  unsigned cpu    = port_cpu_id();
-  _in_isr[cpu] = true;
-
-  uint32_t source = bcm_irq::source(cpu);
-
-  if (source & bcm::local::SRC_CNTPNSIRQ)
-    {
-      // Reload this core's private ARM Generic Timer for the next period.
-      // The period is frequency()/1000/OS_SYSTICK_DIV: 1 ms by default, or
-      // 0.5 ms when a test builds with -DOS_SYSTICK_DIV=2. The µOS++ sysclock
-      // still advances at 1 ms: core 0 calls os_systick_handler() only on
-      // every OS_SYSTICK_DIV-th interrupt (preemption stays at the finer rate
-      // on every core).
-      timer_arm::set_tval(timer_arm::period_cycles());
-
-      _port_core_alive[cpu] = 1;   // this core is up and scheduling
-
-      // Core 0 ticks the global clock once per logical (1 ms) tick.
-      if (cpu == 0)
-        {
-          static unsigned systick_phase = 0;
-          if (systick_phase == 0u)
-            {
-              os_systick_handler();
-            }
-          systick_phase = (systick_phase + 1u) % OS_SYSTICK_DIV;
-        }
-
-      _port_ctx_pending[cpu] = 1;
-    }
-  if (source & bcm::local::SRC_MBOX0)
-    {
-      bcm_irq::ack_ipi(cpu);
-      _port_ctx_pending[cpu] = 1;
-    }
-  // A GPU interrupt must be dispatched even when this same handler entry also
-  // carries the timer tick or the reschedule IPI. The legacy BCM2837 IRQ is
-  // level-triggered, so the old "only if nothing else is pending" test did not
-  // LOSE the interrupt — but it could defer servicing it by a whole tick, which
-  // stalls a bulk USB transfer and is invisible in a trace.
-  if (source & bcm::local::SRC_GPU)
-    {
-      port_external_irq_handler(source);
-    }
-
-  uint32_t *ret_sp = current_sp;
-  if (_port_ctx_pending[cpu])
-    {
-      if (!os::rtos::scheduler::locked () && os::rtos::port::scheduler::_smp_klock.owner != cpu)
-        {
-          _port_ctx_pending[cpu] = 0;
-          uint32_t *new_sp = (uint32_t *)port_switch_stacks(current_sp);
-          validate_context(new_sp, current_sp);
-          ret_sp = new_sp;
-        }
-    }
-
-  _in_isr[cpu] = false;
-  return ret_sp;
-}
 
 namespace os { namespace rtos { namespace scheduler {
   extern thread* os_idle_thread_core[OS_NCPU];
