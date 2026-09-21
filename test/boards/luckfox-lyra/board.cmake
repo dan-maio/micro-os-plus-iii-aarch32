@@ -21,9 +21,11 @@ set (UOS_BOARD_NCPU  3)
 # through micro-os-plus::devices-rk3506, which is the RK3506 SD host under the
 # same flatfs/FatFs layers the Pi uses.
 #
-# `usb-device` is still absent: the predecessor's RK3506 DWC2 gadget stack
-# (13 files under src/usb/) has not been carried over yet.
-set (UOS_BOARD_CAPS  smp sdcard led)
+# `usb-device` is here because the predecessor's RK3506 DWC2 gadget stack --
+# src/usb/ and include/usb/, 13 sources and 10 headers -- is now usb/ beside
+# this file, and smp_test6, smp_test7, smp_test_int3 and smp_test_int4 drive
+# it. It is NOT part of the port library; see the source sets below.
+set (UOS_BOARD_CAPS  smp sdcard usb-device led)
 
 # The emulated runs use QEMU's `virt` machine -- generic Cortex-A7, DRAM at
 # 0x4000_0000 -- because none of the RK3506's own blocks are modelled. The
@@ -47,3 +49,58 @@ set (UOS_BOARD_DEFINES
      SOC_RK3506
      SEMIHOST_TRAP_CHOSEN
      "PORT_GREETING=\"µOS++ Luckfox Lyra B (RK3506, Cortex-A7 SMP)\"")
+
+# -----------------------------------------------------------------------------
+# Code this board carries FOR ITS TESTS, compiled only by the tests that ask.
+#
+# None of it goes into the port library, and that is not an optimisation. The
+# predecessor's per-test Makefiles each listed exactly which of these files
+# they compiled, because several tests ship their OWN copy of one of them:
+# smp_test6 and smp_test7 each have a different usb_vendor_gadget.cpp,
+# smp_test_int4 a different sdmmc.cpp. Compiling the shared copy into every
+# application would be a duplicate definition of the symbols the test means to
+# provide itself. test/luckfox-lyra/tests.cmake names, per test, what it takes
+# -- the same list the predecessor's Makefile did.
+
+# The RK3506 DWC2 device (gadget) stack, carried over whole from
+# smp-old/.../{include,src}/usb/.
+#
+# USB_CORE is the eight sources the predecessor's smp_test6 and smp_test7
+# Makefiles compiled from src/usb/. The other five are in usb/src/ because
+# they are part of the stack as it was written -- board_init.cpp and
+# usb1_dev.cpp belong to the predecessor's own demo, and dma_pool.cpp,
+# usb_env_stateos.cpp and usb_vendor_gadget.cpp are the three every test
+# replaces -- not because anything here builds them.
+#
+# smp_test_int3 and smp_test_int4 take none of the sources, only the headers:
+# their usb/usb1_int3.cpp drives the DWC2 registers directly.
+set (UOS_BOARD_USB_INCLUDE "${CMAKE_CURRENT_LIST_DIR}/usb/include")
+set (UOS_BOARD_USB_CORE_SOURCES
+     "${CMAKE_CURRENT_LIST_DIR}/usb/src/udc_core.cpp"
+     "${CMAKE_CURRENT_LIST_DIR}/usb/src/usb_composite.cpp"
+     "${CMAKE_CURRENT_LIST_DIR}/usb/src/usb_config.cpp"
+     "${CMAKE_CURRENT_LIST_DIR}/usb/src/usb_endpoint_autoconfig.cpp"
+     "${CMAKE_CURRENT_LIST_DIR}/usb/src/usb_string_table.cpp"
+     "${CMAKE_CURRENT_LIST_DIR}/usb/src/dwc2_driver.cpp"
+     "${CMAKE_CURRENT_LIST_DIR}/usb/src/dwc2_ep0.cpp"
+     "${CMAKE_CURRENT_LIST_DIR}/usb/src/dwc2_gadget.cpp")
+
+# FatFs R0.15a compiled as C++ inside `namespace fatfs`, carried over from
+# smp-old/.../src/sdcard/fatfs_cpp/.
+#
+# This is a SECOND FatFs in the workspace: micro-os-plus-iii-devices/fatfs/ is
+# the same R0.15a as C, and the two are not interchangeable. The C++ one wraps
+# Dir and File in RAII classes and returns `enum class` results, which is the
+# API smp_test5, smp_test7 and smp_test_int4 were written against. The C one
+# is what flatfs and the Pi's sd_test use. Neither can serve the other, and
+# they do not collide: every symbol of this one is inside `namespace fatfs`.
+#
+# DISKIO is separate from SOURCES because smp_test_int4 supplies its own --
+# sd/diskio_sd_irq.cpp, over its own interrupt-driven sdmmc.cpp.
+set (UOS_BOARD_FATFS_CPP_INCLUDE "${CMAKE_CURRENT_LIST_DIR}/fatfs-cpp")
+set (UOS_BOARD_FATFS_CPP_SOURCES
+     "${CMAKE_CURRENT_LIST_DIR}/fatfs-cpp/ff.cpp"
+     "${CMAKE_CURRENT_LIST_DIR}/fatfs-cpp/ffsystem.cpp"
+     "${CMAKE_CURRENT_LIST_DIR}/fatfs-cpp/ffunicode.cpp")
+set (UOS_BOARD_FATFS_CPP_DISKIO
+     "${CMAKE_CURRENT_LIST_DIR}/fatfs-cpp/diskio_sdmmc.cpp")

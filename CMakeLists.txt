@@ -184,6 +184,9 @@ target_sources (
         src/context_switch.cpp
         src/exception_handler.cpp
         src/handlers.cpp
+        # Strong _Exit(): terminate through semihosting, so std::exit() ends
+        # the run with a real exit code instead of idling.
+        src/semihosting-exit.cpp
         src/smp_secondary.cpp
         src/rtos/os-core.cpp
         # No code. Fails the build the moment a board has not stated

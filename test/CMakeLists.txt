@@ -55,6 +55,20 @@ set (BOARD_TEST_SELF_CONTAINED "")
 function (board_test_defines _app _out)
   set (${_out} "" PARENT_SCOPE)
 endfunction ()
+# Sources and include directories ONE test needs beyond its own directory.
+#
+# A test carried over from the predecessor may bring a subdirectory of its own
+# -- usb/, sd/, m0/ -- and may take part of the code the board carries for its
+# tests. It cannot be a glob: several of those tests ship their own copy of a
+# file the board also has, so which copy a test compiles is a decision, not a
+# directory listing. The board's tests.cmake makes it, one test at a time,
+# exactly as that test's Makefile did.
+function (board_test_sources _app _out)
+  set (${_out} "" PARENT_SCOPE)
+endfunction ()
+function (board_test_includes _app _out)
+  set (${_out} "" PARENT_SCOPE)
+endfunction ()
 if (EXISTS "${_test_dir}/tests.cmake")
   include ("${_test_dir}/tests.cmake")
 endif ()
@@ -82,7 +96,9 @@ foreach (_dir IN LISTS _test_dirs)
   endif ()
   list (APPEND _apps "${_app}")
 
-  board_test_defines ("${_app}" _app_defines)
+  board_test_defines  ("${_app}" _app_defines)
+  board_test_sources  ("${_app}" _app_sources)
+  board_test_includes ("${_app}" _app_includes)
 
   # A test carried over whole from the predecessor defines its own
   # smp_install_boot_threads(); adding the board's shared copy would be a
@@ -118,11 +134,11 @@ foreach (_dir IN LISTS _test_dirs)
 
     uos_add_app (
       "${_app}-${_variant}"
-      SOURCES ${_srcs} ${_app_support}
+      SOURCES ${_srcs} ${_app_support} ${_app_sources}
       NCPU ${_ncpu}
       LINKER_SCRIPT "${_variant_linker}"
       DEFINES ${_common_defines} ${_app_defines} ${_variant_defines}
-      INCLUDES ${_test_includes}
+      INCLUDES ${_app_includes} ${_test_includes}
       LIBRARIES ${_libs}
       OUTPUT_NAME "${_app}-${_variant}"
     )

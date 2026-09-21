@@ -41,7 +41,24 @@ namespace semihosting
 {
   // The trap, spelled once. Both forms leave r0/r1 as the Angel ABI wants
   // them and clobber the same registers.
-#if defined(SEMIHOST_TRAP_HLT)
+  //
+  // The trap AND the SYS_EXIT parameter differ between the emulator and the
+  // debugger:
+  //
+  //   QEMU (QEMU_BUILD)  the classic Angel trap, SVC 0x123456, and QEMU takes
+  //                      the exit reason as a VALUE in r1 (0x20026 on success).
+  //   hardware (HW_BUILD) the trap is the debugger's: HLT #0xF000 for the Pi
+  //                      (OpenOCD `aarch64` target) or SVC for the Lyra, and
+  //                      OpenOCD takes the reason as a POINTER to the reason
+  //                      word.
+  //
+  // Getting the QEMU case wrong is not fatal to run-qemu.sh (it reads the
+  // RESULT line), but it makes QEMU return exit code 1, which a CTest-style
+  // runner would report as a failure.
+#if defined(QEMU_BUILD)
+#define UOS_SEMIHOST_TRAP ".arm\n svc 0x123456\n"       /* Angel, QEMU */
+#define UOS_SEMIHOST_EXIT_BY_VALUE 1
+#elif defined(SEMIHOST_TRAP_HLT)
 #define UOS_SEMIHOST_TRAP ".arm\n .inst 0xE10F0070\n"   /* HLT #0xF000 */
 #else
 #define UOS_SEMIHOST_TRAP ".arm\n svc 0x123456\n"       /* Angel, ARMv7-A */
@@ -73,20 +90,29 @@ namespace semihosting
         : "r2", "r3", "ip", "lr", "memory", "cc");
   }
 
-  // SYS_EXIT (0x18): stop the run and report a status to the host. r1 must
-  // point to the ADP_Stopped reason block (a single 32-bit code): 0x20026 is
-  // ADP_Stopped_ApplicationExit (success); anything else is treated as an
-  // error by the debugger / host tooling.
+  // SYS_EXIT (0x18): stop the run and report a status to the host.
+  //
+  // QEMU wants the reason as a value in r1; OpenOCD wants a pointer to the
+  // reason word. See UOS_SEMIHOST_EXIT_BY_VALUE above.
   inline void
   exit (int code) noexcept
   {
     register int r0 asm ("r0") = 0x18;
+#if defined(UOS_SEMIHOST_EXIT_BY_VALUE)
+    register int r1 asm ("r1") = code;
+    asm volatile (
+        UOS_SEMIHOST_TRAP
+        : "+r" (r0)
+        : "r" (r1)
+        : "r2", "r3", "ip", "lr", "memory", "cc");
+#else
     register const int* r1 asm ("r1") = &code;
     asm volatile (
         UOS_SEMIHOST_TRAP
         : "+r" (r0)
         : "r" (r1)
         : "r2", "r3", "ip", "lr", "memory", "cc");
+#endif
   }
 
   inline void
