@@ -43,7 +43,6 @@ endif ()
 
 set (_linker_hwd  "${UOS_BOARD_LINKER_HW}")
 set (_linker_qemu "${UOS_BOARD_LINKER_QEMU}")
-set (_ncpu        "${UOS_BOARD_NCPU}")
 
 # One image per test, or two.
 #
@@ -88,6 +87,43 @@ endfunction ()
 function (board_test_includes _app _out)
   set (${_out} "" PARENT_SCOPE)
 endfunction ()
+# The LINKER SCRIPT one test needs instead of the board's.
+#
+# A board is one piece of hardware, so one memory map -- until a test changes
+# where it runs. On the RP2350B the PSRAM tests link their data into the
+# external PSRAM at 0x11000000 while every other test on the same board keeps
+# its data in internal SRAM, and the predecessor said so with one LDSCRIPT
+# line per Makefile. Returning nothing keeps the board's own script, which is
+# what every test of every other board does.
+function (board_test_linker _app _out)
+  set (${_out} "" PARENT_SCOPE)
+endfunction ()
+# COMPILE OPTIONS one test needs on ITS OWN sources.
+#
+# Not on the kernel it links: these are options that belong to the way a
+# particular application is written. The RP2350's nested-interrupt tests are
+# the case -- they place their handlers in .data so the code runs from RAM
+# rather than XIP flash, and the predecessor's Makefiles gave exactly those
+# main.cpp files "-g0 -mlong-calls", with the comment "disabling debug symbols
+# and enabling long-calls for RAM function support". Both halves are load
+# bearing: a call from flash to a .data function is out of a Thumb BL's reach,
+# and GCC's location views cannot describe a function whose section moved
+# ("Error: leb128 operand is an undefined symbol").
+function (board_test_options _app _out)
+  set (${_out} "" PARENT_SCOPE)
+endfunction ()
+# How many CPUs ONE test runs on, when that is not the whole board.
+#
+# NCPU is a board fact for every board of these ports but one: the RP2350 has
+# two cores, and two of its tests are deliberately single-core -- smp-test1 is
+# the single-core RTOS bring-up and sc-test-ko is the single-core twin of
+# smp-test-ko, the only test on that silicon exercising the kernel's NON-SMP
+# branch. Their Makefiles simply did not define OS_USE_SMP_SCHEDULER.
+# uos_add_app() derives that define from NCPU, so returning 1 is the whole of
+# it.
+function (board_test_ncpu _app _out)
+  set (${_out} "${UOS_BOARD_NCPU}" PARENT_SCOPE)
+endfunction ()
 if (EXISTS "${_test_dir}/tests.cmake")
   include ("${_test_dir}/tests.cmake")
 endif ()
@@ -118,6 +154,9 @@ foreach (_dir IN LISTS _test_dirs)
   board_test_defines  ("${_app}" _app_defines)
   board_test_sources  ("${_app}" _app_sources)
   board_test_includes ("${_app}" _app_includes)
+  board_test_linker   ("${_app}" _app_linker)
+  board_test_options  ("${_app}" _app_options)
+  board_test_ncpu     ("${_app}" _app_ncpu)
 
   # A test carried over whole from the predecessor defines its own
   # smp_install_boot_threads(); adding the board's shared copy would be a
@@ -126,6 +165,12 @@ foreach (_dir IN LISTS _test_dirs)
   set (_app_support ${_test_support})
   if ("${_app}" IN_LIST BOARD_TEST_SELF_CONTAINED)
     set (_app_support "")
+  endif ()
+
+  # The application's own sources carry its own options, if it has any --
+  # every other source of the target keeps the build's.
+  if (_app_options)
+    set_source_files_properties (${_srcs} PROPERTIES COMPILE_OPTIONS "${_app_options}")
   endif ()
 
   set (_libs micro-os-plus::aarch32)
@@ -143,6 +188,12 @@ foreach (_dir IN LISTS _test_dirs)
         list (APPEND _variant_defines DEBUG_BOOT)
       endif ()
       set (_variant_linker "${_linker_hwd}")
+      # A test that names its own script takes it. Only the hardware image:
+      # an emulated machine has the memory map QEMU gives it, not the one a
+      # board's external memory happens to have.
+      if (_app_linker)
+        set (_variant_linker "${_app_linker}")
+      endif ()
     else ()
       # QEMU_BUILD says "this image runs under the emulator", which is not the
       # same as "not hardware": a board whose silicon QEMU does not model
@@ -154,7 +205,7 @@ foreach (_dir IN LISTS _test_dirs)
     uos_add_app (
       "${_app}-${_variant}"
       SOURCES ${_srcs} ${_app_support} ${_app_sources}
-      NCPU ${_ncpu}
+      NCPU ${_app_ncpu}
       LINKER_SCRIPT "${_variant_linker}"
       DEFINES ${_common_defines} ${_app_defines} ${_variant_defines}
       # ${_dir} is the application's own directory, which the predecessor's
