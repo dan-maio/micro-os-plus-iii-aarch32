@@ -5,6 +5,7 @@
 #include <exception_handler.hpp>
 #include <smp.hpp>
 #include <ff.hpp>
+#include <semihosting.hpp>
 
 using namespace fatfs;
 
@@ -248,7 +249,7 @@ static void* sd_card_thread_func(void*)
     uart_mtx.lock();
     uart::uart1 << "[SD] Mount failed: " << fres_str(r) << "\n";
     uart_mtx.unlock();
-    for (;;) os::rtos::sysclock.sleep_for(10000);
+    semihosting::report_result (false);
   }
 
   uart_mtx.lock();
@@ -295,6 +296,7 @@ static void* sd_card_thread_func(void*)
       uart_mtx.lock();
       uart::uart1 << "[SD] Write failed: " << fres_str(r) << "\n";
       uart_mtx.unlock();
+      semihosting::report_result (false);
     }
   }
 
@@ -328,6 +330,7 @@ static void* sd_card_thread_func(void*)
       uart_mtx.lock();
       uart::uart1 << "[SD] Read failed: " << fres_str(r) << "\n";
       uart_mtx.unlock();
+      semihosting::report_result (false);
     }
   }
 
@@ -335,9 +338,10 @@ static void* sd_card_thread_func(void*)
   uart::uart1 << "[SD] SD card test complete on core " << (int)core << "\n";
   uart_mtx.unlock();
 
-  for (;;)
-    os::rtos::sysclock.sleep_for(10000);
-  return nullptr;
+  // The verdict, and the stop. OpenOCD has no process status, so this line is
+  // the result and the SYS_EXIT ends the run -- the hardware counterpart of
+  // returning from os_main() under QEMU.
+  semihosting::report_result (true);
 }
 
 // --- os_main: boot cores, create threads with affinity ---

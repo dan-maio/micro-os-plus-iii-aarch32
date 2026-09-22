@@ -128,4 +128,34 @@ namespace semihosting
     constexpr int adp_stopped_internalerror = 0x20023;
     exit (adp_stopped_internalerror);
   }
+
+  // The verdict-and-stop used by a hardware test.
+  //
+  // A QEMU run has a process status: the test returns from os_main(), the
+  // strong _Exit() (src/semihosting-exit.cpp) reports through SYS_EXIT, and
+  // CTest reads the exit code. A hardware run under OpenOCD has no process
+  // status -- the probe is a debugger, not a parent -- so the verdict is the
+  // "RESULT: PASS|FAIL" line the runners grep, and SYS_EXIT is what STOPS the
+  // run instead of leaving the core spinning until the runner times out.
+  //
+  // Printing the line on the semihosting channel (not the UART) is what makes
+  // it reach the OpenOCD log, and calling exit_*() is what makes the strong
+  // _Exit() path real for a test that would otherwise loop forever.
+  [[noreturn]] inline void
+  report_result (bool pass) noexcept
+  {
+    if (pass)
+      {
+        write_str ("\nRESULT: PASS\n");
+        exit_success ();
+      }
+    else
+      {
+        write_str ("\nRESULT: FAIL\n");
+        exit_failure ();
+      }
+    for (;;)
+      {
+      }
+  }
 } // namespace semihosting
