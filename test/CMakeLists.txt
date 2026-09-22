@@ -70,6 +70,11 @@ set (_common_defines TRACE __ARM_EABI__ __ARM_ARCH_7A__ SEMIHOST)
 set (BOARD_TEST_NEED_DEVICES "")
 # Tests that bring their own start-up code and must NOT also get test/src/.
 set (BOARD_TEST_SELF_CONTAINED "")
+# Tests that compile NO KERNEL at all -- the bare-metal probes that run before
+# a scheduler exists. They link the port's bare target instead of its full one
+# and are declared NO_KERNEL, so no kernel, no port scheduler and no OS_NCPU
+# reach them. A port with no such test never sets UOS_PORT_BARE_LIB.
+set (BOARD_TEST_NO_KERNEL "")
 function (board_test_defines _app _out)
   set (${_out} "" PARENT_SCOPE)
 endfunction ()
@@ -174,6 +179,16 @@ foreach (_dir IN LISTS _test_dirs)
   endif ()
 
   set (_libs micro-os-plus::aarch32)
+  set (_no_kernel "")
+  if ("${_app}" IN_LIST BOARD_TEST_NO_KERNEL)
+    if (NOT UOS_PORT_BARE_LIB)
+      message (FATAL_ERROR
+               "${_app} is listed in BOARD_TEST_NO_KERNEL, but this port "
+               "declares no bare target (UOS_PORT_BARE_LIB).")
+    endif ()
+    set (_libs ${UOS_PORT_BARE_LIB})
+    set (_no_kernel NO_KERNEL)
+  endif ()
   if ("${_app}" IN_LIST BOARD_TEST_NEED_DEVICES)
     list (APPEND _libs ${UOS_BOARD_DEVICES})
   endif ()
@@ -204,6 +219,7 @@ foreach (_dir IN LISTS _test_dirs)
 
     uos_add_app (
       "${_app}-${_variant}"
+      ${_no_kernel}
       SOURCES ${_srcs} ${_app_support} ${_app_sources}
       NCPU ${_app_ncpu}
       LINKER_SCRIPT "${_variant_linker}"
