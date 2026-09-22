@@ -212,7 +212,12 @@ public:
   void
   wait (void)
   {
-    __asm__ volatile ("dmb ish" ::: "memory");
+    // A full barrier. __atomic_thread_fence emits exactly "dmb ish" on
+    // ARMv8-A and "dmb" on ARMv7-A -- the same instruction this line always
+    // was -- and the right one on a host, which has no such mnemonic. The
+    // lock below is already a GCC atomic builtin; this makes the pair of
+    // fences around it the same kind of thing.
+    __atomic_thread_fence (__ATOMIC_SEQ_CST);
     int gen = generation;
 
     while (__atomic_test_and_set (&lock_, __ATOMIC_ACQUIRE))
@@ -236,7 +241,12 @@ public:
           }
       }
 
-    __asm__ volatile ("dmb ish" ::: "memory");
+    // A full barrier. __atomic_thread_fence emits exactly "dmb ish" on
+    // ARMv8-A and "dmb" on ARMv7-A -- the same instruction this line always
+    // was -- and the right one on a host, which has no such mnemonic. The
+    // lock below is already a GCC atomic builtin; this makes the pair of
+    // fences around it the same kind of thing.
+    __atomic_thread_fence (__ATOMIC_SEQ_CST);
   }
 
 private:
@@ -821,7 +831,9 @@ os_main (int /*argc*/, char* /*argv*/[])
       hw_result::fail ();
       for (;;)
         {
-          __asm__ volatile ("wfi");
+          // The kernel's own port API, implemented by every port: "wfi" on
+          // both ARM profiles, "__WFI()" on Cortex-M, sigsuspend() on a host.
+          port::scheduler::wait_for_interrupt ();
         }
     }
   int num_blocks = N / B;

@@ -31,9 +31,12 @@ test_secondary_idle_func (void*)
   this_thread::thread ().priority (thread::priority::idle);
   for (;;)
     {
-      // "dsb sy" is the portable spelling: ARMv8-A requires the domain and
-      // ARMv7-A accepts it, so one line serves every ARM port.
-      __asm__ volatile ("dsb sy\n wfi" ::: "memory");
+      // The kernel already has this as a port API, and every port implements
+      // it: "dsb sy; wfi" on ARMv8-A, "dsb; wfi" on ARMv7-A, "__DSB(); __WFI()"
+      // on Cortex-M, and sigsuspend() on the POSIX host, which has no such
+      // instruction to spell. The raw asm that used to be here was the last
+      // line of assembly left in a shared test source.
+      port::scheduler::wait_for_interrupt ();
       this_thread::yield ();
     }
   return nullptr;
