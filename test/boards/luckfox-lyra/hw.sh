@@ -17,7 +17,7 @@
 # __smp_spin, and a second load cannot un-release them.
 #
 # Env:  BUILD=<dir>            the CMake build directory  (default: test/build-lyra)
-#       UOS_HW_ADAPTER_KHZ=<n> SWD clock                  (default: 1000)
+#       UOS_HW_ADAPTER_KHZ=<n> SWD clock                  (default: 4000)
 # -----------------------------------------------------------------------------
 set -uo pipefail
 
@@ -59,5 +59,5 @@ UOS_HW_NCPU=3 \
 UOS_HW_CORES="0" \
 UOS_HW_TARGET_FMT="rk3506.a7.%d" \
 UOS_HW_PRELOAD="$SANITIZE" \
-UOS_HW_ADAPTER_KHZ="${UOS_HW_ADAPTER_KHZ:-1000}" \
+UOS_HW_ADAPTER_KHZ="${UOS_HW_ADAPTER_KHZ:-4000}" \
 exec "$SMP_DIR/test_smpl/run-hw.sh" "$BUILD/test" "${1:-list}" "${2:-}"

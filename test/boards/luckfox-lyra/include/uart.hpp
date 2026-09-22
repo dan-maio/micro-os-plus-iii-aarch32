@@ -114,9 +114,7 @@ public:
      */
     void putc(char c) const noexcept {
         write_raw(c);
-#if defined(SEMIHOST)
-        semihosting::write_char(c);
-#endif
+        sh_putc(c);
     }
 
     /**
@@ -128,13 +126,18 @@ public:
             if (*p == '\n')
                 write_raw('\r');
             write_raw(*p);
+            // Buffered: the semihosting mirror emits one SYS_WRITE0 per line,
+            // not one SYS_WRITEC per byte. See sh_putc().
+            sh_putc(*p);
         }
-#if defined(SEMIHOST)
-        // Send the whole string in one SYS_WRITE0 call (far cheaper than a
-        // HLT per byte). '\n' is enough on the OpenOCD host console.
-        semihosting::write_str(str);
-#endif
     }
+
+    /// Emit any buffered semihosting text now.
+    ///
+    /// The mirror batches whole lines, so a caller that prints a partial line
+    /// and then blocks or exits should flush. Most output ends in '\n' and
+    /// flushes itself.
+    void flush() const noexcept { sh_flush(); }
 
     // Console-only output: goes to the UART but is NOT echoed to semihosting.
     // Used when a thread must print to the serial console without paying the
@@ -274,6 +277,44 @@ private:
     }
 
 #endif // QEMU_BUILD
+
+    // --- Semihosting mirror, line buffered ---------------------------------
+    //
+    // Every semihosting call is a debug halt/resume over SWD, and the cost is
+    // per CALL, not per byte: a SYS_WRITEC per character is what made the
+    // console crawl (a few characters a second). So the mirror accumulates a
+    // line and emits it with a single SYS_WRITE0 at the newline (or when the
+    // buffer is full).
+    //
+    // The buffer is per-instance and is touched only through putc()/puts(),
+    // which the multi-core tests serialise with their console mutex.
+    static constexpr unsigned sh_buf_size_ = 256;
+    mutable char sh_buf_[sh_buf_size_];
+    mutable unsigned sh_len_ = 0;
+
+    void sh_flush() const noexcept {
+#if defined(SEMIHOST)
+        if (sh_len_ > 0) {
+            sh_buf_[sh_len_] = '\0';
+            semihosting::write_str(sh_buf_);
+            sh_len_ = 0;
+        }
+#endif
+    }
+
+    void sh_putc(char c) const noexcept {
+#if defined(SEMIHOST)
+        if (sh_len_ + 1u >= sh_buf_size_) {
+            sh_flush();
+        }
+        sh_buf_[sh_len_++] = c;
+        if (c == '\n' || c == '\r') {
+            sh_flush();
+        }
+#else
+        (void)c;
+#endif
+    }
 
     bool initialized_ = false;   ///< Set by init().
 };
