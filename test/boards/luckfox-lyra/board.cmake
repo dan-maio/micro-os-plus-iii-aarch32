@@ -92,6 +92,20 @@ set (UOS_BOARD_USB_CORE_SOURCES
      "${CMAKE_CURRENT_LIST_DIR}/usb/src/dwc2_ep0.cpp"
      "${CMAKE_CURRENT_LIST_DIR}/usb/src/dwc2_gadget.cpp")
 
+# Two more the board owns, kept out of USB_CORE_SOURCES because only the
+# gadget tests want them: smp_test6 and smp_test7 each carried a
+# BYTE-IDENTICAL private copy of both until the duplicate gate named them.
+set (UOS_BOARD_USB_GADGET_SOURCES
+     "${CMAKE_CURRENT_LIST_DIR}/usb/src/dma_pool.cpp"
+     "${CMAKE_CURRENT_LIST_DIR}/usb/src/usb_env_stateos.cpp")
+
+# The register-level USB driver the two interrupt tests drive directly,
+# instead of the core sources above. smp_test_int3 and smp_test_int4 carried
+# a byte-identical copy each; it now lives with the board, like everything
+# else both of them use.
+set (UOS_BOARD_USB_INT_SOURCES
+     "${CMAKE_CURRENT_LIST_DIR}/usb/src/usb1_int3.cpp")
+
 # FatFs R0.15a compiled as C++ inside `namespace fatfs`, carried over from
 # smp-old/.../src/sdcard/fatfs_cpp/.
 #

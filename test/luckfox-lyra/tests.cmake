@@ -74,19 +74,17 @@ function (board_test_sources _app _out)
   elseif (_app STREQUAL "smp_test6")
     set (_s ${UOS_BOARD_USB_CORE_SOURCES}
             "${_lyra_tests}/smp_test6/usb/usb_vendor_gadget.cpp"
-            "${_lyra_tests}/smp_test6/usb/dma_pool.cpp"
-            "${_lyra_tests}/smp_test6/usb/usb_env_stateos.cpp")
+            ${UOS_BOARD_USB_GADGET_SOURCES})
   elseif (_app STREQUAL "smp_test7")
     set (_s ${UOS_BOARD_USB_CORE_SOURCES}
             "${_lyra_tests}/smp_test7/usb/usb_vendor_gadget.cpp"
-            "${_lyra_tests}/smp_test7/usb/dma_pool.cpp"
-            "${_lyra_tests}/smp_test7/usb/usb_env_stateos.cpp"
+            ${UOS_BOARD_USB_GADGET_SOURCES}
             ${UOS_BOARD_FATFS_CPP_SOURCES} ${UOS_BOARD_FATFS_CPP_DISKIO})
   elseif (_app STREQUAL "smp_test_int3")
-    set (_s "${_lyra_tests}/smp_test_int3/usb/usb1_int3.cpp"
+    set (_s ${UOS_BOARD_USB_INT_SOURCES}
             "${_lyra_tests}/smp_test_int3/usb/usb_env_int3.cpp")
   elseif (_app STREQUAL "smp_test_int4")
-    set (_s "${_lyra_tests}/smp_test_int4/usb/usb1_int3.cpp"
+    set (_s ${UOS_BOARD_USB_INT_SOURCES}
             "${_lyra_tests}/smp_test_int4/usb/usb_env_int3.cpp"
             "${_lyra_tests}/smp_test_int4/sd/sdmmc.cpp"
             "${_lyra_tests}/smp_test_int4/sd/diskio_sd_irq.cpp"
