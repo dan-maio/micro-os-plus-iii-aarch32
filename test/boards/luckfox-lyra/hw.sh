@@ -27,6 +27,8 @@ BUILD="${BUILD:-$ROOT/test/build-lyra}"
 
 TC="$(ls -d "$HOME"/.local/xPacks/@xpack-dev-tools/arm-none-eabi-gcc/15.*/.content/bin 2>/dev/null | sort -V | tail -1)"
 SMP_DIR="${UOS_SMP_DIR:-$(cd "$ROOT/.." && pwd)/micro-os-plus-iii-smp}"
+# A workspace may keep the sibling as a `*.git` working copy.
+[ -d "$SMP_DIR" ] || SMP_DIR="$SMP_DIR.git"
 
 # The miniloader leaves the MMU and caches on, with its own page tables. The
 # image is loaded over that, so the core is put back the way a reset leaves it

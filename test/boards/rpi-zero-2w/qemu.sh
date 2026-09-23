@@ -19,6 +19,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
 BUILD="${BUILD:-$ROOT/test/build}"
 SMP_DIR="${UOS_SMP_DIR:-$(cd "$ROOT/.." && pwd)/micro-os-plus-iii-smp}"
+# A workspace may keep the sibling as a `*.git` working copy.
+[ -d "$SMP_DIR" ] || SMP_DIR="$SMP_DIR.git"
 
 QEMU="$(ls "$HOME"/.local/xPacks/@xpack-dev-tools/qemu-arm/*/.content/bin/qemu-system-aarch64 2>/dev/null | sort -V | tail -1)"
 [[ -x "$QEMU" ]] || QEMU=qemu-system-aarch64
