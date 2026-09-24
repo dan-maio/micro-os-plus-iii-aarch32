@@ -249,28 +249,6 @@ worker_thread_fn (void*)
 // ---------------------------------------------------------------------------
 // Command loop — runs in the USB service thread once the host configures us.
 // ---------------------------------------------------------------------------
-// Console lines the queues had no room for. Diagnostics must never throttle
-// the protocol: the USB service thread posts these between commands, and the
-// semihosting consumer drains one debug trap at a time. A BLOCKING post means
-// the thread is not back in the command loop and bulk OUT is not re-armed, so
-// the host's NEXT command times out -- which is how a fully completed PUT came
-// to look like a device hang. Dropping a diagnostic line is the right trade:
-// the verdict is built from the CRC tally, never from the dump.
-std::uint32_t g_console_dropped = 0u;
-
-void
-post_console (const OutMsg& m)
-{
-  if (g_uart_q->try_send (&m, sizeof (m)) != result::ok)
-    {
-      ++g_console_dropped;
-    }
-  if (g_semi_q->try_send (&m, sizeof (m)) != result::ok)
-    {
-      ++g_console_dropped;
-    }
-}
-
 void
 log_line (const char* text)
 {
@@ -279,7 +257,12 @@ log_line (const char* text)
   m.kind = kMsgText;
   std::strncpy (reinterpret_cast<char*> (m.data), text, kChunkData - 1u);
   m.data[kChunkData - 1u] = '\0';
-  post_console (m);
+  // Blocking post: pace the console consumers. A non-blocking post floods the
+  // queue, the semihosting consumer then issues a tight burst of HLT/semihosting
+  // traps that the JTAG probe cannot service (Invalid ACK -> DAP lost), and the
+  // verdict lines are the first to be dropped when the queue overflows.
+  g_uart_q->send (&m, sizeof (m));
+  g_semi_q->send (&m, sizeof (m));
 }
 
 // ---------------------------------------------------------------------------
@@ -538,7 +521,13 @@ stream_file (const char* name, const std::uint8_t* data, std::uint32_t len)
       m.offset = off;
       m.len = (len - off < kChunkData) ? (len - off) : kChunkData;
       std::memcpy (m.data, data + off, m.len);
-      post_console (m);
+      // The bulk hexdump goes to the UART only. Streaming it over semihosting
+      // as well turns every 128-byte line into a debug-halt trap, and the
+      // sustained burst is what makes the JTAG probe drop the DAP ("Invalid
+      // ACK"). The UART carries the full dump; semihosting carries the framed
+      // BEGIN/END (with CRC), the listing and the verdict, which is all the
+      // hardware harness greps for.
+      g_uart_q->send (&m, sizeof (m));
     }
 
   std::snprintf (banner, sizeof (banner), "---- END %s crc32=%08lx ----\n", name,
@@ -579,13 +568,11 @@ finish (std::uint32_t commands, std::uint32_t bytes_in, std::uint32_t bytes_out,
 {
   char line[128];
   std::snprintf (line, sizeof (line),
-                 "commands=%lu bytes_in=%lu bytes_out=%lu crc_errors=%lu"
-                 " console_dropped=%lu\n",
+                 "commands=%lu bytes_in=%lu bytes_out=%lu crc_errors=%lu\n",
                  static_cast<unsigned long> (commands),
                  static_cast<unsigned long> (bytes_in),
                  static_cast<unsigned long> (bytes_out),
-                 static_cast<unsigned long> (crc_errors),
-                 static_cast<unsigned long> (g_console_dropped));
+                 static_cast<unsigned long> (crc_errors));
   log_line (line);
 
   // What actually landed in the folder this run wrote into.
@@ -704,16 +691,6 @@ command_loop (void*)
               }
             const std::uint32_t ulen = static_cast<std::uint32_t> (got);
             const usbtest::Sink::Result r = sd_put (name, filebuf, ulen);
-
-            // Answer FIRST, then talk to the consoles. The store result is
-            // already known here, and everything below is diagnostics: a
-            // hexdump and a folder listing, each line a queue post that
-            // blocks once the 16-deep queue is full and is drained one
-            // semihosting trap at a time. Under a JTAG probe that is slow
-            // enough to outlast the host's reply timeout, so a reply sent
-            // after the logging made a completed PUT look like a hang.
-            send_reply (static_cast<std::uint32_t> (r), nullptr, 0u);
-
             if (r == usbtest::Sink::Result::ok)
               {
                 bytes_in += ulen;
@@ -741,6 +718,11 @@ command_loop (void*)
                 // this a plain send_file.py would never show the folder.
                 log_storage_listing ();
               }
+            // Reply only after the diagnostics. With blocking console sends
+            // the hexdump has been fully delivered by now, so the reply does
+            // not race a still-busy device and the verdict lines can never be
+            // dropped by a full queue.
+            send_reply (static_cast<std::uint32_t> (r), nullptr, 0u);
           }
           break;
 
@@ -931,12 +913,12 @@ os_main (int argc, char* argv[])
   smp_install_boot_threads ();
   smp::start_secondary_cores ();
 
-  // Inter-thread channels.
-  // 64 deep, not 16: a 511-byte hexdump plus a folder listing fits without
-  // dropping anything, while try_send() keeps a 1 MiB dump from ever stalling
-  // the protocol.
-  g_uart_q = new message_queue ("uartq", 64u, sizeof (OutMsg));
-  g_semi_q = new message_queue ("semiq", 64u, sizeof (OutMsg));
+  // Inter-thread channels. The console queues are drained with blocking
+  // sends (see log_line/stream_file): a non-blocking post overflows the queue,
+  // drops the verdict lines and lets the semihosting consumer issue a HLT
+  // burst the JTAG probe cannot service.
+  g_uart_q = new message_queue ("uartq", 16u, sizeof (OutMsg));
+  g_semi_q = new message_queue ("semiq", 16u, sizeof (OutMsg));
   g_uart_flushed = new semaphore_binary ("uartf", 0u);
   g_semi_flushed = new semaphore_binary ("semif", 0u);
   g_sd_q = new message_queue ("sdq", 4u, sizeof (SdReq));

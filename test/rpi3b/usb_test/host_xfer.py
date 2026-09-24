@@ -146,13 +146,17 @@ def read_exact(dev, n, timeout=30000):
 
 
 def read_reply(dev):
-    hdr = read_exact(dev, 16, timeout=10000)
+    # The device answers a PUT only AFTER it has streamed the received file to
+    # its UART/semihosting consoles (blocking sends, so nothing is dropped and
+    # the semihosting burst cannot outrun the JTAG probe). That stream can take
+    # well over the old 10 s, so use a budget that covers the whole hexdump.
+    hdr = read_exact(dev, 16, timeout=120000)
     if len(hdr) != 16:
         die("short reply header")
     magic, status, length, crc = struct.unpack(RSP_FMT, hdr)
     if magic != RSP_MAGIC:
         die(f"bad reply magic 0x{magic:08x}")
-    payload = read_exact(dev, length) if length else b""
+    payload = read_exact(dev, length, timeout=120000) if length else b""
     if length and (length % in_max_packet(dev)) == 0:
         drain_zlp(dev)
     if length and (zlib.crc32(payload) & 0xFFFFFFFF) != crc:
@@ -262,6 +266,11 @@ def run_file(dev, args):
         if st != 0 or got != data:
             die("GET back did not match")
         print("GET back: ok (byte-for-byte)")
+    # Terminate the device so it prints its own summary and RESULT line on the
+    # UART/semihosting console and stops. Without this terminating PING the
+    # device stays in the command loop and only ever streams the hexdump, so a
+    # hardware run (which greps the console for RESULT) never sees a verdict.
+    do_ping(dev, terminate=True)
     print("RESULT: PASS")
 
 
