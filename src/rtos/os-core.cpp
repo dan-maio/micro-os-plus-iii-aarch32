@@ -435,14 +435,28 @@ namespace os
     ssize_t
     write (const void* buf, std::size_t nbyte)
     {
+      // putc() issues a semihosting SYS_WRITEC per character, and under a JTAG
+      // probe each HLT is a debugger round-trip: a verbose trace then crawls
+      // (it looks like a hang). Batch into NUL-terminated chunks (with CR for
+      // LF) and hand each to puts(), which writes the UART and a single
+      // SYS_WRITE0 -- one trap per chunk instead of one per byte.
       const char* cbuf = reinterpret_cast<const char*>(buf);
-      for (std::size_t i = 0; i < nbyte; ++i)
+      char chunk[128];
+      std::size_t i = 0;
+      while (i < nbyte)
         {
-          if (cbuf[i] == '\n')
+          std::size_t n = 0;
+          while ((i < nbyte) && (n < sizeof (chunk) - 2))
             {
-              uart::uart1.putc('\r');
+              const char c = cbuf[i++];
+              if (c == '\n')
+                {
+                  chunk[n++] = '\r';
+                }
+              chunk[n++] = c;
             }
-          uart::uart1.putc(cbuf[i]);
+          chunk[n] = '\0';
+          uart::uart1.puts (chunk);
         }
       return static_cast<ssize_t>(nbyte);
     }

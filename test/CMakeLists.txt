@@ -129,6 +129,17 @@ endfunction ()
 function (board_test_ncpu _app _out)
   set (${_out} "${UOS_BOARD_NCPU}" PARENT_SCOPE)
 endfunction ()
+# EXTRA LIBRARIES one test needs, on top of the port and the board's own.
+#
+# This is the seam the harness suites use. Their sources are not here -- they
+# live in the harness, tests/sources/<suite>/, and are named by the port's own
+# test::<suite> target -- and they need the harness's board support (the
+# suite's os-app-config.h, the semihosting syscall groups, --wrap=os_main). A
+# board that has no such test defines nothing and every test gets only the
+# port, exactly as before this hook existed.
+function (board_test_libs _app _out)
+  set (${_out} "" PARENT_SCOPE)
+endfunction ()
 if (EXISTS "${_test_dir}/tests.cmake")
   include ("${_test_dir}/tests.cmake")
 endif ()
@@ -162,6 +173,7 @@ foreach (_dir IN LISTS _test_dirs)
   board_test_linker   ("${_app}" _app_linker)
   board_test_options  ("${_app}" _app_options)
   board_test_ncpu     ("${_app}" _app_ncpu)
+  board_test_libs     ("${_app}" _app_libs)
 
   # A test carried over whole from the predecessor defines its own
   # smp_install_boot_threads(); adding the board's shared copy would be a
@@ -191,6 +203,12 @@ foreach (_dir IN LISTS _test_dirs)
   endif ()
   if ("${_app}" IN_LIST BOARD_TEST_NEED_DEVICES)
     list (APPEND _libs ${UOS_BOARD_DEVICES})
+  endif ()
+  # The harness suites bring their own libraries (test::<suite> and the
+  # suite's board support). Appended last, so the suite's include directory --
+  # and the os-app-config.h in it -- wins over anything the port pulls in.
+  if (_app_libs)
+    list (APPEND _libs ${_app_libs})
   endif ()
 
   foreach (_variant IN LISTS _variants)
@@ -233,6 +251,24 @@ foreach (_dir IN LISTS _test_dirs)
       LIBRARIES ${_libs}
       OUTPUT_NAME "${_app}-${_variant}"
     )
+
+    # The hardware runner (test_smpl/run-hw.sh) loads
+    # `$BUILD/test/<app>-hwd`, with no extension, while the ELF the linker
+    # writes carries the toolchain's `.elf`. Leave a symlink under the name the
+    # runner looks for; the `.elf` stays the real file, so anything else that
+    # reads the build tree is untouched. Only the hardware image: the qemu
+    # runner reads the `.bin` the objcopy step already wrote.
+    if (_variant STREQUAL "hwd")
+      add_custom_command (
+        TARGET "${_app}-${_variant}"
+        POST_BUILD
+        COMMAND
+          "${CMAKE_COMMAND}" -E create_symlink
+          "$<TARGET_FILE:${_app}-${_variant}>"
+          "$<TARGET_FILE_DIR:${_app}-${_variant}>/${_app}-${_variant}"
+        VERBATIM
+      )
+    endif ()
   endforeach ()
 endforeach ()
 
