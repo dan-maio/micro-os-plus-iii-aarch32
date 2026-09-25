@@ -1,5 +1,5 @@
 /*
- * smp-pipeline-test — Raspberry Pi Zero 2W µOS++ multi-core pipeline demo (" PORT_BANNER_ISA ").
+ * smp-pipeline-test — Luckfox Lyra B µOS++ multi-core pipeline demo (" PORT_BANNER_ISA ").
  *
  * A high-concurrency stress test demonstrating:
  *   - 13 concurrent threads across 4 Cortex-A53 cores:
@@ -44,11 +44,11 @@
 #include <atomic>
 
 // Secondary-core idle stacks, the idle body and smp_install_boot_threads()
-// are identical in every SMP test; see test_smpl/common/src/test-smp-boot.cpp.
+// are identical in every SMP test; see this board's src/test-smp-boot.cpp.
 #include <test-smp-boot.hpp>
 
 // console() / console_uart() serialise output across cores; every test
-// carried its own copy. See test_smpl/common/include/test-console.hpp.
+// carried its own copy. See this board's include/test-console.hpp.
 #include <test-console.hpp>
 
 extern "C" unsigned port_cpu_id (void);

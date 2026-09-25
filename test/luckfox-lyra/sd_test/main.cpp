@@ -1,5 +1,5 @@
 /*
- * sd_test — Raspberry Pi Zero 2W (BCM2837, 4× Cortex-A53) SD card test.
+ * sd_test — Luckfox Lyra B (RK3506, 3× Cortex-A7) SD card test, from the Pi Zero 2W.
  *
  * Two build flavours, selected by the Makefile:
  *

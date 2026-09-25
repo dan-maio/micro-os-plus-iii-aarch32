@@ -1,5 +1,5 @@
 /*
- * smp-mat-sdcard-test (Raspberry Pi Zero 2W / BCM2837, 4× Cortex-A53) —
+ * smp-mat-sdcard-test (Luckfox Lyra B / RK3506, 3× Cortex-A7; from the Pi Zero 2W) —
  * parallel block linear equation solver, N = 200, B = 20, OS_NCPU cores, with the
  * MATRICES STORED ON THE SD CARD instead of only in RAM. Storage is flatfs
  * over the raw disk.img (QEMU build) or the existing FAT32 boot partition via
@@ -72,7 +72,7 @@
 #include <cstring>
 
 // Secondary-core idle stacks, the idle body and smp_install_boot_threads()
-// are identical in every SMP test; see test_smpl/common/src/test-smp-boot.cpp.
+// are identical in every SMP test; see this board's src/test-smp-boot.cpp.
 #include <test-smp-boot.hpp>
 
 using namespace os::rtos;

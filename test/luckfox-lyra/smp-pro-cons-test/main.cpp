@@ -1,6 +1,6 @@
 /*
  * smp-pro-cons-test — Multi-Core Producer-Consumer Testing ALL Kernel Objects
- * Raspberry Pi Zero 2W (BCM2837, 4x Cortex-A53, AArch64).
+ * Luckfox Lyra B (RK3506, 3x Cortex-A7, AArch32); carried from the Pi Zero 2W.
  *
  * This test exercises every single µOS++ III kernel object in SMP concurrency:
  *   1. os::rtos::thread                 : 12 threads running concurrently across OS_NCPU cores
@@ -39,11 +39,11 @@
 #include <atomic>
 
 // Secondary-core idle stacks, the idle body and smp_install_boot_threads()
-// are identical in every SMP test; see test_smpl/common/src/test-smp-boot.cpp.
+// are identical in every SMP test; see this board's src/test-smp-boot.cpp.
 #include <test-smp-boot.hpp>
 
 // console() / console_uart() serialise output across cores; every test
-// carried its own copy. See test_smpl/common/include/test-console.hpp.
+// carried its own copy. See this board's include/test-console.hpp.
 #include <test-console.hpp>
 
 extern "C" unsigned port_cpu_id (void);

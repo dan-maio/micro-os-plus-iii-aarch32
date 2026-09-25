@@ -1,5 +1,5 @@
 /*
- * smp_test3 — Raspberry Pi Zero 2W µOS++ message_queue producer/consumer.
+ * smp_test3 — Luckfox Lyra B µOS++ message_queue producer/consumer.
  *
  * A producer (core 0) sends a stream of integers into a µOS++ message_queue;
  * a consumer (core 1) receives them, tests each for primality, toggles the LED
@@ -16,7 +16,7 @@
 #include <hw_result.hpp>
 
 // Secondary-core idle stacks, the idle body and smp_install_boot_threads()
-// are identical in every SMP test; see test_smpl/common/src/test-smp-boot.cpp.
+// are identical in every SMP test; see this board's src/test-smp-boot.cpp.
 #include <test-smp-boot.hpp>
 
 extern "C" unsigned port_cpu_id(void);

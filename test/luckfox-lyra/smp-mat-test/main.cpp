@@ -1,5 +1,5 @@
 /*
- * smp-mat-test (Raspberry Pi Zero 2W / BCM2837, 4× Cortex-A53) — parallel
+ * smp-mat-test (Luckfox Lyra B / RK3506, 3× Cortex-A7; from the Pi Zero 2W) — parallel
  * block linear equation solver, N = 120, B = 20, OS_NCPU cores. Adapted from the
  * pico2 smp-mat-test (itself the pico2 port of the A7 smp_test4). EVERYTHING
  * RUNS IN RAM (the whole kernel image, all matrices, all stacks live in DRAM;
@@ -51,7 +51,7 @@
 #include <cstdlib>
 
 // Secondary-core idle stacks, the idle body and smp_install_boot_threads()
-// are identical in every SMP test; see test_smpl/common/src/test-smp-boot.cpp.
+// are identical in every SMP test; see this board's src/test-smp-boot.cpp.
 #include <test-smp-boot.hpp>
 
 using namespace os::rtos;

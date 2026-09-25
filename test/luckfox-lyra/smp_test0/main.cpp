@@ -1,9 +1,9 @@
 /*
- * smp_test0 — Raspberry Pi Zero 2W µOS++ Phase-1 bring-up.
+ * smp_test0 — Luckfox Lyra B µOS++ Phase-1 bring-up.
  *
- * Single active core (core 0). Proves the board layer: PL011 UART, MMU
+ * Single active core (core 0). Proves the board layer: the UART, MMU
  * (cacheable+shareable DRAM), ARM generic-timer 1 ms tick, and the µOS++
- * scheduler running a thread that sleeps on the system clock. Cores 1-3 are
+ * scheduler running a thread that sleeps on the system clock. Cores 1-2 are
  * parked in startup.S (Phase 2 brings them up).
  */
 #include <cmsis-plus/rtos/os.h>

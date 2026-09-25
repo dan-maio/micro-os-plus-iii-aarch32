@@ -1,5 +1,5 @@
 /*
- * smp_test4 — Raspberry Pi Zero 2W µOS++ no-affinity load balancing.
+ * smp_test4 — Luckfox Lyra B µOS++ no-affinity load balancing.
  *
  * Spawns NWORK CPU-bound worker threads with NO cpu_affinity, so the SMP
  * scheduler is free to place them on any of the OS_NCPU cores. Each worker records
@@ -16,7 +16,7 @@
 #include <hw_result.hpp>
 
 // Secondary-core idle stacks, the idle body and smp_install_boot_threads()
-// are identical in every SMP test; see test_smpl/common/src/test-smp-boot.cpp.
+// are identical in every SMP test; see this board's src/test-smp-boot.cpp.
 #include <test-smp-boot.hpp>
 
 extern "C" unsigned port_cpu_id(void);

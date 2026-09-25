@@ -1,5 +1,5 @@
 /*
- * smp_test1 — Raspberry Pi Zero 2W µOS++ semaphore ping-pong + LED.
+ * smp_test1 — Luckfox Lyra B µOS++ semaphore ping-pong + LED.
  *
  * Two threads bounce a token back and forth across cores via two binary
  * semaphores (pinger pinned to core 0, ponger to core 1). A logger thread on
@@ -16,7 +16,7 @@
 #include <hw_result.hpp>
 
 // Secondary-core idle stacks, the idle body and smp_install_boot_threads()
-// are identical in every SMP test; see test_smpl/common/src/test-smp-boot.cpp.
+// are identical in every SMP test; see this board's src/test-smp-boot.cpp.
 #include <test-smp-boot.hpp>
 
 extern "C" unsigned port_cpu_id(void);

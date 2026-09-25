@@ -1,5 +1,5 @@
 /*
- * smp-num-test — Raspberry Pi Zero 2W µOS++ multi-thread I/O demo (" PORT_BANNER_ISA ").
+ * smp-num-test — Luckfox Lyra B µOS++ multi-thread I/O demo (" PORT_BANNER_ISA ").
  *
  * 64-bit sibling of ../../32b/smp-num-test. Five concurrent worker threads
  * with EXPLICIT priorities (highest first):
@@ -54,11 +54,11 @@
 #include <cstring>
 
 // Secondary-core idle stacks, the idle body and smp_install_boot_threads()
-// are identical in every SMP test; see test_smpl/common/src/test-smp-boot.cpp.
+// are identical in every SMP test; see this board's src/test-smp-boot.cpp.
 #include <test-smp-boot.hpp>
 
 // console() / console_uart() serialise output across cores; every test
-// carried its own copy. See test_smpl/common/include/test-console.hpp.
+// carried its own copy. See this board's include/test-console.hpp.
 #include <test-console.hpp>
 
 extern "C" unsigned port_cpu_id (void);
