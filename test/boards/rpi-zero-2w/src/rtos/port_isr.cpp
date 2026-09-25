@@ -60,6 +60,10 @@ extern "C" [[gnu::weak]] void port_external_irq_handler(uint32_t source)
     (void)source;
 }
 
+#if defined(UOS_CMSIS_OS_VALIDATOR)
+extern "C" void ARM_CMSIS_VALIDATOR_IRQHandler (void);
+#endif
+
 // C-style ISR handler called from assembly irq_handler.
 //
 // BCM2837 has no GIC: the taken IRQ is identified from the per-core local
@@ -103,6 +107,17 @@ extern "C" uint32_t * port_isr_handler(uint32_t *current_sp)
       bcm_irq::ack_ipi(cpu);
       _port_ctx_pending[cpu] = 1;
     }
+#if defined(UOS_CMSIS_OS_VALIDATOR)
+  // Mailbox 1 stands in for the validator's NVIC IRQ 0 (NVIC_* in
+  // test/rpi-zero-2w/cmsis-os-validator/harness-suite.cpp). Only the
+  // validator's image defines UOS_CMSIS_OS_VALIDATOR (tests.cmake).
+  if (source & (1u << 5))
+    {
+      bcm::mmio_write(bcm::local::MBOX_RDCLR0 + 0x10u * cpu + 4u * 1, ~0u);
+      bcm::dsb();
+      ARM_CMSIS_VALIDATOR_IRQHandler();
+    }
+#endif
   // A GPU interrupt must be dispatched even when this same handler entry also
   // carries the timer tick or the reschedule IPI. The legacy BCM2837 IRQ is
   // level-triggered, so the old "only if nothing else is pending" test did not

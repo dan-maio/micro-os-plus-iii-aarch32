@@ -61,6 +61,29 @@ constexpr uint32_t kDramAttr =
 constexpr uint32_t kDeviceAttr =
     bits::kSection | bits::kApRwAll | bits::kDomain0 | bits::kDevice | bits::kXn;
 
+#if defined(UOS_CMSIS_OS_VALIDATOR)
+// The CMSIS-RTOS validator is Cortex-M code: at start it probes the DWT cycle
+// counter by reading DWT_CTRL (0xE0001000) and DWT_CYCCNT (0xE0001004)
+// directly. Those addresses are unmapped here and fault. Only the validator's
+// image defines UOS_CMSIS_OS_VALIDATOR (test/rpi-zero-2w/tests.cmake); it gets
+// one 4 KiB RAM page at 0xE0001000 whose DWT_CTRL reads NOCYCCNT ("no cycle
+// counter"), so the validator runs its wait tests without cycle measurements,
+// as on a Cortex-M without a DWT. Every other test's table is unchanged.
+constexpr uint32_t kDwtBase          = 0xE0001000u;
+constexpr uint32_t kDwtCtrlNoCycCnt  = 1u << 25;
+
+// Coarse page table descriptor (L1) and small page descriptor (L2).
+constexpr uint32_t kCoarse = 1u << 0;                       // bits[1:0]=0b01
+constexpr uint32_t kSmallPageAttr =
+    (1u << 1) | (1u << 0)                                   // small page, XN
+    | (3u << 4)                                             // AP[1:0]=11 : RW
+    | (1u << 6) | (1u << 3) | (1u << 2)                     // TEX=001 C B : Normal WBWA
+    | (1u << 10);                                           // Shareable
+
+alignas(1024) uint32_t dwt_l2[256];     // 0xE0000000 .. 0xE00FFFFF
+alignas(4096) uint32_t dwt_page[1024];
+#endif
+
 // --- CP15 / barrier helpers ------------------------------------------------
 inline void dsb() noexcept { __asm__ volatile("dsb" ::: "memory"); }
 inline void isb() noexcept { __asm__ volatile("isb" ::: "memory"); }
@@ -96,6 +119,18 @@ void build_table() {
         else
             __ttb_base[i] = 0u;                  // invalid -> translation fault
     }
+#if defined(UOS_CMSIS_OS_VALIDATOR)
+    for (uint32_t i = 0; i < 256u; ++i) dwt_l2[i] = 0u;
+    for (uint32_t i = 0; i < 1024u; ++i) dwt_page[i] = 0u;
+    dwt_page[0] = kDwtCtrlNoCycCnt;  // DWT_CTRL: no cycle counter
+
+    dwt_l2[(kDwtBase >> 12) & 0xFFu] =
+        static_cast<uint32_t>(reinterpret_cast<std::uintptr_t>(dwt_page))
+        | kSmallPageAttr;
+    __ttb_base[kDwtBase >> 20] =
+        static_cast<uint32_t>(reinterpret_cast<std::uintptr_t>(dwt_l2))
+        | kCoarse | bits::kDomain0;
+#endif
     dsb(); // publish the table before the MMU walks it
 }
 
@@ -138,5 +173,9 @@ extern "C" void mmu_init() {
     build_table();
     clean_cache_range(static_cast<uint32_t>(reinterpret_cast<std::uintptr_t>(__ttb_base)),
                       0x4000u); // flush the 16 KB L1 table to PoC
+#if defined(UOS_CMSIS_OS_VALIDATOR)
+    clean_cache_range(static_cast<uint32_t>(reinterpret_cast<std::uintptr_t>(dwt_l2)),
+                      sizeof(dwt_l2)); // and the L2 table behind 0xE00xxxxx
+#endif
     mmu_enable();
 }

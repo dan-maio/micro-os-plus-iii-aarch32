@@ -21,6 +21,12 @@ function (board_test_defines _app _out)
     # belongs to the board, so LED_PIN is set for every test, not here.
     list (APPEND _d LED_BLINKS=3 LED_ON_MS=40 LED_OFF_MS=40
                     LED_GAP_MS=300 USB_FORCE_FS)
+  elseif (_app STREQUAL "cmsis-os-validator")
+    # The validator is Cortex-M code. For its image only, the board maps a
+    # "no cycle counter" page where it probes the DWT (src/mmu.cpp), and
+    # routes Mailbox 1, its stand-in for NVIC IRQ 0, to its handler
+    # (src/rtos/port_isr.cpp). Every other test's image is unchanged.
+    list (APPEND _d UOS_CMSIS_OS_VALIDATOR)
   endif ()
   set (${_out} "${_d}" PARENT_SCOPE)
 endfunction ()
@@ -52,6 +58,9 @@ function (board_test_libs _app _out)
          aarch32-rpi-zero-2w-harness-suite PARENT_SCOPE)
   elseif (_app STREQUAL "mutex-stress")
     set (${_out} test::mutex-stress aarch32-rpi-zero-2w-harness-suite PARENT_SCOPE)
+  elseif (_app STREQUAL "cmsis-os-validator")
+    set (${_out} test::cmsis-os-validator xpacks::arm-cmsis-os-validator
+         aarch32-rpi-zero-2w-harness-suite PARENT_SCOPE)
   else ()
     set (${_out} "" PARENT_SCOPE)
   endif ()
