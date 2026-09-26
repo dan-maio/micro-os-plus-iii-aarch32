@@ -17,6 +17,9 @@
 #include <cmsis-plus/rtos/os.h>
 
 #include <uart.hpp>
+#if defined(SEMIHOST)
+#include <semihosting.hpp>
+#endif
 
 #include <cstdarg>
 #include <cstdint>
@@ -107,6 +110,25 @@ report_per_core (const char* label, const std::uint32_t* counts)
       n += w;
     }
   console ("%s\n", b);
+}
+
+// The verdict: the RESULT line on the UART, then semihosting::report_result(),
+// which prints it on the semihosting channel (the OpenOCD log the runner reads,
+// even when the console is UART-only, UOS_CONSOLE_UART_ONLY) and exits.
+[[noreturn]] inline void
+test_result (bool pass)
+{
+  test::console_mutex ().lock ();
+  uart::uart1.puts_uart (pass ? "\nRESULT: PASS\n" : "\nRESULT: FAIL\n");
+  test::console_mutex ().unlock ();
+#if defined(SEMIHOST)
+  semihosting::report_result (pass);
+#else
+  for (;;)
+    {
+      os::rtos::sysclock.sleep_for (1000);
+    }
+#endif
 }
 
 #endif /* UOS_TEST_CONSOLE_HPP_ */

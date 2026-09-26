@@ -23,6 +23,7 @@
 #include <gic.hpp>
 #include <exception_handler.hpp>
 #include <smp.hpp>
+#include <test-console.hpp>
 
 extern "C" unsigned port_cpu_id(void);
 
@@ -695,9 +696,21 @@ int os_main(int argc, char* argv[])
             "UART typing is still echoed by the core-1 ISR.\n"
             "---------------------------------------------------------------\n\n");
 
-  // 7. Sleep forever
-  for (;;)
-    sysclock.sleep_for(10000);
+  // The verdict: the host must configure the OTG1 gadget within two minutes.
+  // After that the test keeps running for one more minute, to type on the PC (host/kbd_forward),
+  // then reports and exits.
+  bool configured = false;
+  for (unsigned s = 0; s < 120 && !configured; ++s)
+    {
+      sysclock.sleep_for(1000);
+      configured = (usb1i3_is_configured() != 0);
+    }
+  uart1 << (configured ? "[USB] configured by the host; 60 s to type\n"
+                       : "[USB] NOT configured by the host within 120 s\n");
+  if (configured)
+    sysclock.sleep_for(60000);
+
+  test_result(configured);
 }
 
 // ---------------------------------------------------------------------------

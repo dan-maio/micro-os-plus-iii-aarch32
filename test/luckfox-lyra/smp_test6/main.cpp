@@ -4,6 +4,7 @@
 #include <uart.hpp>
 #include <exception_handler.hpp>
 #include <smp.hpp>
+#include <test-console.hpp>
 
 #include <cstring>
 
@@ -231,8 +232,24 @@ int os_main (int argc, char* argv[])
   uart1 << "3 threads created: usb(any core), logger(any core), led(any core)\n";
   uart1 << "Dynamic scheduling: work distributed by SMP scheduler\n";
 
-  for (;;)
-    sysclock.sleep_for(10000);
+  // The verdict: the host must configure the gadget (its bulk endpoints get
+  // enabled) within two minutes. After that the test keeps running for one
+  // more minute, for usb_test_host --write/--big, then reports and exits.
+  extern bool endpoints_enabled;
+  bool configured = false;
+  for (unsigned s = 0; s < 120 && !configured; ++s)
+    {
+      sysclock.sleep_for(1000);
+      configured = endpoints_enabled;
+    }
+  uart_mtx.lock();
+  uart1 << (configured ? "[USB] configured by the host; 60 s for usb_test_host\n"
+                       : "[USB] NOT configured by the host within 120 s\n");
+  uart_mtx.unlock();
+  if (configured)
+    sysclock.sleep_for(60000);
+
+  test_result(configured);
 }
 
 extern "C" {

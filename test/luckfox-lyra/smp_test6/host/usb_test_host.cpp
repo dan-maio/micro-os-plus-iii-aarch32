@@ -133,39 +133,59 @@ int detect_bulk_endpoints(libusb_device_handle* handle) {
 }
 
 /**
- * @brief Write data to device with retries.
+ * @brief Write data to device, resuming after timeouts.
+ *
+ * The device may accept data slower than one timeout period allows (it can
+ * print every byte it receives to its console). A timeout that still moved
+ * data is progress, not failure: the next attempt continues from where the
+ * last one stopped -- libusb reports how much went out -- instead of sending
+ * the whole buffer again, which duplicated data on the device. Only
+ * MAX_RETRIES timeouts in a row without a single byte moved are an error.
  */
 std::expected<int, int> write_to_device(DeviceHandle& dev, std::span<const uint8_t> data, bool verbose = true) {
-    int transferred = 0;
     int ret = 0;
+    size_t done = 0;
+    int idle = 0;
     if (verbose)
         std::println("Writing {} bytes to EP_OUT ({:#04x})...", data.size(), ep_out_addr);
-    for (int i = 0; i < MAX_RETRIES; ++i) {
-        ret = dev.bulk_transfer(ep_out_addr, {const_cast<uint8_t*>(data.data()), data.size()}, transferred, USB_TIMEOUT);
-        if (ret == 0) {
-            if (verbose)
-                std::println("Wrote {} bytes to device", transferred);
-            return transferred;
+    while (done < data.size()) {
+        int transferred = 0;
+        ret = dev.bulk_transfer(ep_out_addr,
+                                {const_cast<uint8_t*>(data.data()) + done, data.size() - done},
+                                transferred, USB_TIMEOUT);
+        done += static_cast<size_t>(transferred);
+        if (ret == 0 || (ret == LIBUSB_ERROR_TIMEOUT && transferred > 0)) {
+            idle = 0;
+            continue;
         }
-        
-        std::println(std::cerr, "Error: write failed (attempt {}/{}): {} (ret={})", i + 1, MAX_RETRIES, error_name(ret), ret);
+
+        std::println(std::cerr, "Error: write failed (attempt {}/{}): {} (ret={})", idle + 1, MAX_RETRIES, error_name(ret), ret);
         if (ret == LIBUSB_ERROR_PIPE) {
             libusb_clear_halt(dev.get(), ep_out_addr);
         }
+        if (++idle >= MAX_RETRIES)
+            return std::unexpected(ret);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    return std::unexpected(ret);
+    if (verbose)
+        std::println("Wrote {} bytes to device", done);
+    return static_cast<int>(done);
 }
 
 /**
- * @brief Read data from device with retries.
+ * @brief Read data from device, as much as one transfer brings.
+ *
+ * A timeout that still brought data returns what arrived (the callers loop
+ * until they have everything); only MAX_RETRIES timeouts in a row with
+ * nothing received are an error.
  */
 std::expected<int, int> read_from_device(DeviceHandle& dev, std::span<uint8_t> data) {
     int transferred = 0;
     int ret = 0;
     for (int i = 0; i < MAX_RETRIES; ++i) {
         ret = dev.bulk_transfer(ep_in_addr, data, transferred, USB_TIMEOUT);
-        if (ret == 0) return transferred;
+        if (ret == 0 || (ret == LIBUSB_ERROR_TIMEOUT && transferred > 0))
+            return transferred;
 
         std::println(std::cerr, "Error: read failed (attempt {}/{}): {} (ret={})", i + 1, MAX_RETRIES, error_name(ret), ret);
         if (ret == LIBUSB_ERROR_PIPE) {

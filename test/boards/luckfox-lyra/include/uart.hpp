@@ -302,8 +302,13 @@ private:
 #endif
     }
 
+    // UOS_CONSOLE_UART_ONLY: the console stays on the UART, as in the
+    // predecessor's USB tests. Each mirrored line is a debug halt of the core
+    // and a probe transaction; a USB test keeps the probe quiet while the host
+    // enumerates, and sends only its verdict through semihosting
+    // (test_result() in test-console.hpp).
     void sh_putc(char c) const noexcept {
-#if defined(SEMIHOST)
+#if defined(SEMIHOST) && !defined(UOS_CONSOLE_UART_ONLY)
         if (sh_len_ + 1u >= sh_buf_size_) {
             sh_flush();
         }

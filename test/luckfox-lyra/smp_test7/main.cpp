@@ -4,6 +4,7 @@
 #include <uart.hpp>
 #include <exception_handler.hpp>
 #include <smp.hpp>
+#include <test-console.hpp>
 #include <ff.hpp>
 
 #include <cstring>
@@ -166,7 +167,7 @@ static void* sd_thread_func(void*) {
   }
   if (r != FR_OK) {
     uart_mtx.lock(); uart::uart1 << "[SD] Mount failed: " << fres_str(r) << "\n"; uart_mtx.unlock();
-    for (;;) os::rtos::sysclock.sleep_for(10000);
+    test_result(false);
   }
   uart_mtx.lock(); uart::uart1 << "[SD] SD card ready on core " << (int)core << "\n"; uart_mtx.unlock();
 
@@ -178,9 +179,10 @@ static void* sd_thread_func(void*) {
 
       File f;
       r = f.open("0:/received.dat", FA_WRITE | FA_CREATE_ALWAYS);
+      bool ok = (r == FR_OK);
       if (r == FR_OK) {
         UINT bw;
-        f.write(g_file_buf, g_file_len, &bw);
+        ok = (f.write(g_file_buf, g_file_len, &bw) == FR_OK) && (bw == g_file_len);
         f.close();
         uart_mtx.lock(); uart::uart1 << "[SD] Written " << (int)bw << " B OK\n"; uart_mtx.unlock();
       } else {
@@ -200,6 +202,7 @@ static void* sd_thread_func(void*) {
 
       if (ans == 'y' || ans == 'Y') {
         r = f_unlink("0:/received.dat");
+        ok = ok && (r == FR_OK);
         uart_mtx.lock();
         uart::uart1 << "[SD] Delete: " << fres_str(r) << "\n" << "[LED] Blinking! (delete confirmed)\n";
         uart_mtx.unlock();
@@ -211,7 +214,11 @@ static void* sd_thread_func(void*) {
       }
 
       list_root();
-      g_file_ready = 0;  // wait for next transfer
+
+      // The verdict: one file received over USB, stored on the card, and the
+      // confirm answered. A few seconds for the LED, then report and exit.
+      os::rtos::sysclock.sleep_for(3000);
+      test_result(ok);
     }
     os::rtos::this_thread::yield();
   }
@@ -274,6 +281,22 @@ int os_main (int argc, char* argv[]) {
   led_thread.cpu_affinity(0xFFFFFFFF);
 
   uart1 << "3 threads: usb, sdcard, led — all dynamic affinity\n";
+
+  // The host must configure the gadget within two minutes; the SD thread
+  // reports the verdict once a file has arrived and the confirm is answered.
+  extern bool endpoints_enabled;
+  bool configured = false;
+  for (unsigned s = 0; s < 120 && !configured; ++s)
+    {
+      sysclock.sleep_for(1000);
+      configured = endpoints_enabled;
+    }
+  uart_mtx.lock();
+  uart1 << (configured ? "[USB] configured by the host; send: usb_test_host --big <file>\n"
+                       : "[USB] NOT configured by the host within 120 s\n");
+  uart_mtx.unlock();
+  if (!configured)
+    test_result(false);
 
   for (;;) sysclock.sleep_for(10000);
 }

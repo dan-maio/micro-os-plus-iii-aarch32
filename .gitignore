@@ -32,3 +32,5 @@ target/
 .vscode/
 .idea/
 .DS_Store
+# kbd_forward, built by test/luckfox-lyra/smp_test_int*/host/Makefile
+test/luckfox-lyra/*/host/kbd_forward

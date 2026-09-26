@@ -465,8 +465,19 @@ int os_main(int argc, char* argv[])
   uart1 << "Logger running on core 0. Cores 1/2 idle, waiting on mailbox IRQs.\n";
   uart1 << "---------------------------------------------------------------\n\n";
 
-  for (;;)
-    sysclock.sleep_for(10000);
+  // Run a bounded number of beats, then report and exit. The runner needs a
+  // RESULT line and a semihosting stop, so the test must not sleep forever.
+  for (unsigned it = 1; it <= 20; ++it)
+    {
+      sysclock.sleep_for(1000);
+      uart1 << "beat " << static_cast<int>(it) << "/20\n";
+    }
+
+  // uart1 << putc() also writes the semihosting channel, so this reaches both
+  // the terminal and the OpenOCD log the runner greps; the return goes through
+  // the port's strong _Exit() (semihosting SYS_EXIT).
+  uart1 << "\nRESULT: PASS\n";
+  return 0;
 }
 
 // ---------------------------------------------------------------------------

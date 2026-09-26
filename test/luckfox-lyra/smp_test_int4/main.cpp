@@ -31,6 +31,7 @@
 #include <gic.hpp>
 #include <exception_handler.hpp>
 #include <smp.hpp>
+#include <test-console.hpp>
 #include "sdmmc.hpp"
 #include "ff.hpp"
 
@@ -641,8 +642,21 @@ int os_main(int argc, char* argv[])
             "Pull the card afterward and read keys.log.\n"
             "---------------------------------------------------------------\n\n");
 
-  for (;;)
-    sysclock.sleep_for(10000);
+  // The verdict: the host must configure the OTG1 gadget within two minutes.
+  // After that the test keeps running for one more minute, to type on the PC (host/kbd_forward); keys go to keys.log,
+  // then reports and exits.
+  bool configured = false;
+  for (unsigned s = 0; s < 120 && !configured; ++s)
+    {
+      sysclock.sleep_for(1000);
+      configured = (usb1i3_is_configured() != 0);
+    }
+  uart1 << (configured ? "[USB] configured by the host; 60 s to type\n"
+                       : "[USB] NOT configured by the host within 120 s\n");
+  if (configured)
+    sysclock.sleep_for(60000);
+
+  test_result(configured);
 }
 
 // ---------------------------------------------------------------------------

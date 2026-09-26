@@ -44,10 +44,16 @@ set (BOARD_TEST_SELF_CONTAINED
 # scheduling behaviour the test was run and reported with.
 function (board_test_defines _app _out)
   set (_d "")
-  if (_app STREQUAL "smp_test_int3")
-    set (_d SMP_TEST_INT3_DIAG SMP_TEST_INT3_DYNAMIC_AFFINITY)
+  # The USB tests keep their console on the UART (UOS_CONSOLE_UART_ONLY, see
+  # the board's uart.hpp): only the verdict goes through semihosting.
+  if (_app STREQUAL "smp_test6" OR _app STREQUAL "smp_test7")
+    set (_d UOS_CONSOLE_UART_ONLY)
+  elseif (_app STREQUAL "smp_test_int3")
+    set (_d SMP_TEST_INT3_DIAG SMP_TEST_INT3_DYNAMIC_AFFINITY
+            UOS_CONSOLE_UART_ONLY)
   elseif (_app STREQUAL "smp_test_int4")
-    set (_d SMP_TEST_INT4_DIAG SMP_TEST_INT4_DYNAMIC_AFFINITY)
+    set (_d SMP_TEST_INT4_DIAG SMP_TEST_INT4_DYNAMIC_AFFINITY
+            UOS_CONSOLE_UART_ONLY)
   elseif (_app STREQUAL "smp_test_int5")
     set (_d SMP_TEST_INT5_SELFTRIG)
   endif ()
@@ -153,18 +159,35 @@ set_source_files_properties (
 )
 
 # -----------------------------------------------------------------------------
-# smp_test6 and smp_test7 declare rk3506::usb::dwc2::Driver themselves -- a
-# three-method stand-in, with instance() declared OUT OF LINE. The stack
-# defines it INLINE, in usb/include/dwc2_driver.hpp.
+# The carried DWC2 gadget stack is compiled at -O0, exactly as the predecessor's
+# Makefiles compiled it.
 #
-# The predecessor compiled at -O0, where an inline function also gets one
-# out-of-line copy, so the tests' declaration always found something to link
-# against. At the -O2 every application here is built with, each call inside
-# the stack is inlined and no copy is emitted at all -- an undefined reference
-# to Driver::instance() in a build where nothing is missing. Asking the one
-# file that instantiates the singleton to keep its inline copies restores it,
-# and leaves both the test and the driver exactly as they were written.
+# This is not a preference and not a workaround we could drop: the source under
+# usb/ is BYTE-IDENTICAL to the predecessor's cortex-a7 stack, which enumerates
+# and runs on this board -- but only at -O0. Built here at the -O2 every other
+# application gets, the same source stops completing USB enumeration: the host
+# reads the device descriptor, then resets and reads it again, never advancing
+# to the configuration descriptor. Rebuilding just these sources at -O0 removes
+# the failure, and the -O0 object code is instruction-for-instruction the
+# predecessor's working image (verified with objdump).
+#
+# The two mechanisms the port already had to work around were only the visible
+# edge of this. Driver::instance() is defined inline in usb/include/
+# dwc2_driver.hpp while smp_test6/smp_test7 declare it out of line; at -O0 an
+# inline function also gets one out-of-line copy, so the tests' declaration
+# always linked. At -O2 the copy is not emitted and --fkeep-inline-functions--
+# was needed to bring it back. The EP0/descriptor path has the same shape: at
+# -O2 the optimizer rewrites it into something the hardware will not enumerate
+# with, and -O0 is the only setting under which it was ever validated.
+#
+# Scoped to the gadget stack alone: the kernel, the ports and every other test
+# keep the -O2 this repository builds with. The application's own descriptor
+# file (its usb_vendor_gadget.cpp) is part of the same stack and takes the same
+# level, so both smp_test6 and smp_test7 are covered.
 set_source_files_properties (
-  "${UOS_BOARD_SRC_DIR}/usb/src/dwc2_gadget.cpp"
-  PROPERTIES COMPILE_OPTIONS "-fkeep-inline-functions"
+  ${UOS_BOARD_USB_CORE_SOURCES}
+  ${UOS_BOARD_USB_GADGET_SOURCES}
+  "${_lyra_tests}/smp_test6/usb/usb_vendor_gadget.cpp"
+  "${_lyra_tests}/smp_test7/usb/usb_vendor_gadget.cpp"
+  PROPERTIES COMPILE_OPTIONS "-O0"
 )
