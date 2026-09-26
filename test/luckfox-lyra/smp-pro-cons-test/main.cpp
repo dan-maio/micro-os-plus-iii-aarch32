@@ -499,10 +499,12 @@ os_main (int, char*[])
         name, reinterpret_cast<thread::func_t> (producer_thread),
         reinterpret_cast<void*> (static_cast<std::uintptr_t> (i)), attr
       };
-      s_prods[i]->cpu_affinity (1u << i);
+      s_prods[i]->cpu_affinity (1u << (i % OS_NCPU));
     }
 
-  // Create Consumers (pinned to cores 0..3)
+  // Create Consumers (pinned to cores 0..3, wrapped to the cores this board
+  // has: a mask naming a missing core matches no core, and the thread never
+  // runs)
   for (unsigned i = 0; i < 4; ++i)
     {
       char* name = s_cons_names[i];
@@ -515,7 +517,7 @@ os_main (int, char*[])
         name, reinterpret_cast<thread::func_t> (consumer_thread),
         reinterpret_cast<void*> (static_cast<std::uintptr_t> (i)), attr
       };
-      s_conss[i]->cpu_affinity (1u << i);
+      s_conss[i]->cpu_affinity (1u << (i % OS_NCPU));
     }
 
   g_target_worker = s_conss[0];
@@ -551,7 +553,7 @@ os_main (int, char*[])
     "pauser", reinterpret_cast<thread::func_t> (pauser_thread),
     nullptr, pause_attr
   };
-  s_pause_thread.cpu_affinity (1u << 3);
+  s_pause_thread.cpu_affinity (1u << (3 % OS_NCPU));
 
   // Create Telemetry thread (waiting on event flags)
   thread::attributes telem_attr = thread::initializer;
