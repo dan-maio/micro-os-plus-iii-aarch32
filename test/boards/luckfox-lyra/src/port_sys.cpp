@@ -36,7 +36,7 @@ extern "C" unsigned port_cpu_id(void)
 {
     unsigned mpidr;
     __asm__ volatile("mrc p15, 0, %0, c0, c0, 5" : "=r"(mpidr));
-    return mpidr & 3U;
+    return mpidr & 0xFFu;
 }
 
 extern "C" void port_smp_ipi(unsigned cpu)

@@ -617,13 +617,13 @@ os_main (int, char*[])
   smp::start_secondary_cores ();
 
   int waited = 0;
-  while ((g_core_stage[1] < 3 || g_core_stage[2] < 3 || g_core_stage[3] < 3) && waited < 3000)
+  while ((g_core_stage[1] < 3 || g_core_stage[2] < 3) && waited < 3000)
     {
       sysclock.sleep_for (50);
       waited += 50;
     }
-  console ("join: c1=%u c2=%u c3=%u (%d ms)\n",
-           (unsigned)g_core_stage[1], (unsigned)g_core_stage[2], (unsigned)g_core_stage[3], waited);
+  console ("join: c1=%u c2=%u (%d ms)\n",
+           (unsigned)g_core_stage[1], (unsigned)g_core_stage[2], waited);
 
   // Launch 13 threads with attributes & priorities
   thread::attributes a = thread::initializer;
@@ -732,15 +732,15 @@ os_main (int, char*[])
   console ("  SD writer turn yields:       %u\n", y_wrt);
   console ("  Auditor chunk read yields:   %u\n", y_aud);
   console ("  Total yield() calls:         %u\n", y_all);
-  console ("Yields by Core: c0=%u c1=%u c2=%u c3=%u\n",
+  console ("Yields by Core: c0=%u c1=%u c2=%u\n",
            g_yield_by_core[0].load (), g_yield_by_core[1].load (),
-           g_yield_by_core[2].load (), g_yield_by_core[3].load ());
-  console ("Produced by Core: c0=%u c1=%u c2=%u c3=%u\n",
+           g_yield_by_core[2].load ());
+  console ("Produced by Core: c0=%u c1=%u c2=%u\n",
            g_prod_by_core[0].load (), g_prod_by_core[1].load (),
-           g_prod_by_core[2].load (), g_prod_by_core[3].load ());
-  console ("Processed by Core: c0=%u c1=%u c2=%u c3=%u\n",
+           g_prod_by_core[2].load ());
+  console ("Processed by Core: c0=%u c1=%u c2=%u\n",
            g_proc_by_core[0].load (), g_proc_by_core[1].load (),
-           g_proc_by_core[2].load (), g_proc_by_core[3].load ());
+           g_proc_by_core[2].load ());
   console ("=======================================================\n");
 
   const bool pass = (aud_total >= 20)
@@ -749,7 +749,7 @@ os_main (int, char*[])
                     && (wrt_err == 0)
                     && (y_all >= 50)
                     && (g_proc_by_core[0] > 0 || g_proc_by_core[1] > 0
-                        || g_proc_by_core[2] > 0 || g_proc_by_core[3] > 0);
+                        || g_proc_by_core[2] > 0);
 
   if (pass)
     {

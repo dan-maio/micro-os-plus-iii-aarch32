@@ -20,6 +20,7 @@
 #pragma once
 
 #include <cstdint>
+#include <atomic>
 #include "bcm2837.hpp"
 
 #ifdef BOARD_RPI3B
@@ -67,7 +68,12 @@ inline void cache_invalidate(const volatile void* p, std::uint32_t bytes) noexce
 }
 
 inline bool set_state(std::uint32_t pin, bool on) noexcept {
-    alignas(16) static volatile std::uint32_t buffer[8];
+    static std::atomic_flag s_lock = ATOMIC_FLAG_INIT;
+    while (s_lock.test_and_set(std::memory_order_acquire)) {
+        __asm__ volatile("yield" ::: "memory");
+    }
+
+    alignas(16) volatile std::uint32_t buffer[8];
     buffer[0] = 8u * 4u;              // total buffer size (bytes)
     buffer[1] = 0u;                   // request code
     buffer[2] = kTagSetGpio;
@@ -81,27 +87,35 @@ inline bool set_state(std::uint32_t pin, bool on) noexcept {
 
     using bcm::mmio_read;
     using bcm::mmio_write;
-    const std::uint32_t addr = reinterpret_cast<std::uint32_t>(&buffer[0]);
+    const std::uint32_t addr = reinterpret_cast<std::uint32_t>(const_cast<std::uint32_t*>(&buffer[0]));
 
     // Send the request (bounded wait for the write buffer to empty).
     std::uint32_t spins = kMaxSpin;
     while (mmio_read(kMboxStatus) & kStatusFull) {
-        if (--spins == 0u) { return false; }
+        if (--spins == 0u) {
+            s_lock.clear(std::memory_order_release);
+            return false;
+        }
     }
     mmio_write(kMboxWrite, (addr & 0xFFFFFFF0u) | kChannelProp);
 
     // Wait for the property-channel response.
-    spins = kMaxSpin;
     std::uint32_t response = 0u;
     do {
+        spins = kMaxSpin;
         while (mmio_read(kMboxStatus) & kStatusEmpty) {
-            if (--spins == 0u) { return false; }
+            if (--spins == 0u) {
+                s_lock.clear(std::memory_order_release);
+                return false;
+            }
         }
         response = mmio_read(kMboxRead);
     } while ((response & 0xFu) != kChannelProp);
 
     cache_invalidate(&buffer[0], sizeof(buffer));
-    return (buffer[1] & 0x80000000u) == kRespOk;
+    const bool ok = (buffer[1] & 0x80000000u) == kRespOk;
+    s_lock.clear(std::memory_order_release);
+    return ok;
 }
 
 } // namespace detail

@@ -547,14 +547,14 @@ os_main (int, char*[])
   smp_install_boot_threads ();
   smp::start_secondary_cores ();
   int waited = 0;
-  while ((g_core_stage[1] < 3 || g_core_stage[2] < 3 || g_core_stage[3] < 3)
+  while ((g_core_stage[1] < 3 || g_core_stage[2] < 3)
          && waited < 3000)
     {
       sysclock.sleep_for (50);
       waited += 50;
     }
-  console ("join: c1=%u c2=%u c3=%u (%d ms)\n", (unsigned)g_core_stage[1],
-           (unsigned)g_core_stage[2], (unsigned)g_core_stage[3], waited);
+  console ("join: c1=%u c2=%u (%d ms)\n", (unsigned)g_core_stage[1],
+           (unsigned)g_core_stage[2], waited);
 
   // Threads, with explicit priorities (high -> low as listed above).
   thread::attributes a = thread::initializer;
@@ -633,9 +633,9 @@ os_main (int, char*[])
                   && (g_calc_written >= kComputeLines) && (g_text_fail == 0)
                   && (g_calc_fail == 0) && (g_read_fail == 0)
                   && (g_led_fail == 0);
-  console ("num.txt lines by core: c0=%u c1=%u c2=%u c3=%u\n",
+  console ("num.txt lines by core: c0=%u c1=%u c2=%u\n",
            (unsigned)g_core_lines[0], (unsigned)g_core_lines[1],
-           (unsigned)g_core_lines[2], (unsigned)g_core_lines[3]);
+           (unsigned)g_core_lines[2]);
   console ("run %u ms, text=%u calc=%u\n", run_ms, (unsigned)g_text_written,
            (unsigned)g_calc_written);
   uart::uart1.puts (ok ? "\nRESULT: PASS\n" : "\nRESULT: FAIL\n");

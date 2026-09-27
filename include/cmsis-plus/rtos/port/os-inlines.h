@@ -45,7 +45,7 @@ namespace os
         {
           unsigned cpu;
           __asm__ volatile("mrc p15, 0, %0, c0, c0, 5" : "=r"(cpu));
-          return cpu & 3U;
+          return cpu & 0xFFu;
         }
 
         inline bool __attribute__ ((always_inline))
@@ -99,9 +99,7 @@ namespace os
         port_set_lock (void)
         {
           __asm__ volatile("cpsid i" ::: "memory");
-          unsigned cpu;
-          __asm__ volatile("mrc p15, 0, %0, c0, c0, 5" : "=r"(cpu));
-          cpu &= 3U;
+          const unsigned cpu = port_cpu_id_inline ();
           if (_smp_klock.owner != cpu)
           {
             _smp_klock_raw_acquire();
@@ -114,9 +112,7 @@ namespace os
         inline void __attribute__ ((always_inline))
         port_put_lock (uint32_t lck)
         {
-          unsigned cpu;
-          __asm__ volatile("mrc p15, 0, %0, c0, c0, 5" : "=r"(cpu));
-          cpu &= 3U;
+          const unsigned cpu = port_cpu_id_inline ();
           if (_smp_klock.owner == cpu && _smp_klock.depth > 0)
           {
             uint32_t d = _smp_klock.depth - 1;
@@ -137,9 +133,7 @@ namespace os
         inline void __attribute__ ((always_inline))
         port_clr_lock (void)
         {
-          unsigned cpu;
-          __asm__ volatile("mrc p15, 0, %0, c0, c0, 5" : "=r"(cpu));
-          cpu &= 3U;
+          const unsigned cpu = port_cpu_id_inline ();
           if (_smp_klock.owner == cpu)
           {
             _smp_klock.depth = 0;
@@ -208,9 +202,7 @@ namespace os
         inline bool __attribute__ ((always_inline))
         in_handler_mode (void)
         {
-          unsigned cpu;
-          __asm__ volatile("mrc p15, 0, %0, c0, c0, 5" : "=r"(cpu));
-          cpu &= 3U;
+          const unsigned cpu = scheduler::port_cpu_id_inline ();
           if (cpu < OS_NCPU && _in_isr[cpu])
             {
               return true;
@@ -234,9 +226,7 @@ namespace os
           __asm__ volatile("mrs %0, cpsr" : "=r"(cpsr));
           __asm__ volatile("cpsid i" ::: "memory");
           
-          unsigned cpu;
-          __asm__ volatile("mrc p15, 0, %0, c0, c0, 5" : "=r"(cpu));
-          cpu &= 3U;
+          const unsigned cpu = scheduler::port_cpu_id_inline ();
           if (scheduler::_smp_klock.owner != cpu)
           {
             scheduler::_smp_klock_raw_acquire();
@@ -250,9 +240,7 @@ namespace os
         inline void __attribute__ ((always_inline))
         critical_section::exit (rtos::interrupts::state_t state)
         {
-          unsigned cpu;
-          __asm__ volatile("mrc p15, 0, %0, c0, c0, 5" : "=r"(cpu));
-          cpu &= 3U;
+          const unsigned cpu = scheduler::port_cpu_id_inline ();
           if (scheduler::_smp_klock.owner == cpu && scheduler::_smp_klock.depth > 0)
           {
             uint32_t d = scheduler::_smp_klock.depth - 1;

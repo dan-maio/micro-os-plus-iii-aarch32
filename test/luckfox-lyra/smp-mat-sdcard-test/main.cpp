@@ -1010,14 +1010,14 @@ os_main (int /*argc*/, char* /*argv*/[])
   smp::start_secondary_cores ();
   {
     int waited = 0;
-    while ((g_core_stage[1] < 3 || g_core_stage[2] < 3 || g_core_stage[3] < 3)
+    while ((g_core_stage[1] < 3 || g_core_stage[2] < 3)
            && waited < 3000)
       {
         sysclock.sleep_for (50);
         waited += 50;
       }
-    write_fmt ("core 0: SMP up (c1=%u c2=%u c3=%u).\n", g_core_stage[1],
-               g_core_stage[2], g_core_stage[3]);
+    write_fmt ("core 0: SMP up (c1=%u c2=%u).\n", g_core_stage[1],
+               g_core_stage[2]);
   }
 
   // ---- Thread Pool demo ----------------------------------------------------
