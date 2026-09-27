@@ -98,8 +98,8 @@ RESULT: SKIP (no USB device mode)
 ```
 
 ```bash
-cd 32b/usb_test && ./run.sh raspi2b      # or: ./run.sh raspi3b
-cd 64b/usb_test && ./run.sh
+# from the harness's tests/ folder:
+xpm run test-usb_test-qemu --config aarch32-rpi-zero-2w-cmake-gcc-debug
 ```
 
 The run also exercises the VideoCore mailbox (`USB power domain: on`), and —
@@ -108,11 +108,10 @@ because no disk image is attached — the `RamUartSink` selection path.
 ## Running on hardware
 
 ```bash
-cd 32b/usb_test                 # or 64b/usb_test
-make clean && make SEMIHOST=1
-./hw.sh 300 &                   # J-Link + OpenOCD, semihosted console
-sleep 20
-python3 send_file.py myfile.bin --get
+# from the harness's tests/ folder (board attached; one power cycle):
+xpm run test-usb_test-hwd --config aarch32-rpi-zero-2w-cmake-gcc-debug
+# then, on the host, drive it with the port's app:
+python3 test/rpi-zero-2w/usb_test/send_file.py myfile.bin --get
 ```
 
 `hw.sh` builds and loads the image over JTAG; its console is the OpenOCD log.

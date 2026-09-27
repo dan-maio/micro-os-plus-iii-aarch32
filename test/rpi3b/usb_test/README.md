@@ -1,4 +1,9 @@
-# `usb_test` — DWC2 USB gadget file transfer (Raspberry Pi Zero 2 W)
+# `usb_test` — DWC2 USB gadget file transfer (Raspberry Pi 3 B)
+
+> The Pi 3 B's USB ports sit behind an on-board hub, so this gadget
+> test does not run on the board's hardware and its emulated variant
+> reports `RESULT: SKIP`. The description below is the Zero 2 W's
+> document (the two boards share the DWC2 driver and this test).
 
 `usb_test` presents the Zero 2 W to a Linux host as a **vendor-specific USB
 bulk device** (VID:PID `1d6b:0104`), reads files off the bulk OUT endpoint,
@@ -98,8 +103,8 @@ RESULT: SKIP (no USB device mode)
 ```
 
 ```bash
-cd 32b/usb_test && ./run.sh raspi2b      # or: ./run.sh raspi3b
-cd 64b/usb_test && ./run.sh
+# from the harness's tests/ folder:
+xpm run test-usb_test-qemu --config aarch32-rpi3b-cmake-gcc-debug
 ```
 
 The run also exercises the VideoCore mailbox (`USB power domain: on`), and —
@@ -108,11 +113,10 @@ because no disk image is attached — the `RamUartSink` selection path.
 ## Running on hardware
 
 ```bash
-cd 32b/usb_test                 # or 64b/usb_test
-make clean && make SEMIHOST=1
-./hw.sh 300 &                   # J-Link + OpenOCD, semihosted console
-sleep 20
-python3 send_file.py myfile.bin --get
+# from the harness's tests/ folder (board attached; one power cycle):
+xpm run test-usb_test-hwd --config aarch32-rpi3b-cmake-gcc-debug
+# then, on the host, drive it with the port's app:
+python3 test/rpi3b/usb_test/send_file.py myfile.bin --get
 ```
 
 `hw.sh` builds and loads the image over JTAG; its console is the OpenOCD log.
