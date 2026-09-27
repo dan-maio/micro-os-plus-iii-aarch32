@@ -306,13 +306,13 @@ namespace os
       inline uint32_t __attribute__ ((always_inline))
       clock_highres::input_clock_frequency_hz (void)
       {
-        return timer_arm::get_freq();
+        return timer_arm::frequency();
       }
 
       inline uint32_t __attribute__ ((always_inline))
       clock_highres::cycles_per_tick (void)
       {
-        return timer_arm::get_freq() / 1000;
+        return timer_arm::frequency() / 1000;
       }
 
       inline uint32_t __attribute__ ((always_inline))

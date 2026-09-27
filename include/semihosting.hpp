@@ -95,7 +95,7 @@ namespace semihosting
   // QEMU wants the reason as a value in r1; OpenOCD wants a pointer to the
   // reason word. See UOS_SEMIHOST_EXIT_BY_VALUE above.
   inline void
-  exit (int code) noexcept
+  exit (int code, int subcode = 0) noexcept
   {
     register int r0 asm ("r0") = 0x18;
 #if defined(UOS_SEMIHOST_EXIT_BY_VALUE)
@@ -106,7 +106,8 @@ namespace semihosting
         : "r" (r1)
         : "r2", "r3", "ip", "lr", "memory", "cc");
 #else
-    register const int* r1 asm ("r1") = &code;
+    volatile uint32_t block[2] = { (uint32_t)code, (uint32_t)subcode };
+    register volatile const uint32_t* r1 asm ("r1") = block;
     asm volatile (
         UOS_SEMIHOST_TRAP
         : "+r" (r0)
