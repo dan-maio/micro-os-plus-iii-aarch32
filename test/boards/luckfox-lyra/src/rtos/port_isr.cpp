@@ -24,10 +24,14 @@ extern "C" void* port_switch_stacks (void* sp);
 extern "C" void os_systick_handler (void);
 
 extern "C" {
-extern volatile unsigned _port_ctx_pending[OS_NCPU];
 extern volatile bool _in_isr[OS_NCPU];
 extern volatile uint32_t _port_core_alive[OS_NCPU];
 }
+
+// The pending flags live in the scheduler namespace (SMP port contract), so
+// this ISR consults the same object the shared reschedule() writes. A
+// C-linkage copy would be a second array nobody else touches.
+using os::rtos::port::scheduler::_port_ctx_pending;
 
 // Validate context frame helper (for debugging/safety check)
 static void validate_context(uint32_t *new_sp, uint32_t *old_sp)

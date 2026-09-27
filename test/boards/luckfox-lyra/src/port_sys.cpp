@@ -15,7 +15,7 @@ extern "C" void port_sys_init(void)
 {
     unsigned cpu;
     __asm__ volatile("mrc p15, 0, %0, c0, c0, 5" : "=r"(cpu));
-    cpu &= 3U;
+    cpu &= 0xFFu;
 
     if (cpu == 0) {
         gic::gic.init();

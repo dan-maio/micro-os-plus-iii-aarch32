@@ -25,8 +25,12 @@ HEAP_BASE = 0x06400000;      /* 100 MB region of the 128 MB DDR, Normal map */
 
 MEMORY
 {
-   /* RAM (rwx) : ORIGIN = 0x00200000, LENGTH = 0x06000000 */ /* 96 MiB window */
-      RAM (rwx) : ORIGIN = 0x00200000, LENGTH = 0x08000000    /* 128 MiB window */
+   /* The MMU maps DRAM Normal up to 0x08000000 (mmu.cpp kDramTop = 128 MiB),
+    * and smp.hpp validates stack pointers against that same 0x08000000 top.
+    * Starting at 0x00200000, the region must therefore be 0x07E00000 long --
+    * the old 0x08000000 length ran 2 MiB past the mapped window, so anything
+    * the linker placed in the tail would translation-fault. */
+      RAM (rwx) : ORIGIN = 0x00200000, LENGTH = 0x07E00000    /* 126 MiB window */
 }
 
 SECTIONS
@@ -86,7 +90,6 @@ SECTIONS
         . = . + SVC_STACK_SIZE;
         __stack_top = .;
         _stack_top = __stack_top;
-        _Heap_Limit = .; /* for µOS++ allocator initialization */
     } > RAM
 
     /* --- Cores 1 and 2 stacks --- */

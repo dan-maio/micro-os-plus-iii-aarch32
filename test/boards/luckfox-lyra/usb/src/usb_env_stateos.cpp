@@ -90,10 +90,23 @@ void increment_timer() { }   ///< U-Boot tick hook (unused; the counter is free-
 void init_gd() { }           ///< U-Boot global-data init hook (unused here).
 
 /* -------------------------------- cache --------------------------------- */
-/// D-cache invalidate hook — no-op: all DMA buffers live in the Normal-NC .dma_nc window.
-void invalidate_dcache_range(std::uint32_t, std::uint32_t) { }
-/// D-cache clean hook — no-op: all DMA buffers live in the Normal-NC .dma_nc window.
-void flush_dcache_range(std::uint32_t, std::uint32_t) { }
+/// D-cache invalidate hook — invalidates lines to support arbitrary caller buffers.
+void invalidate_dcache_range(std::uint32_t start, std::uint32_t stop) {
+    std::uint32_t a = start & ~63u;
+    for (; a < stop; a += 64u) {
+        __asm__ volatile("mcr p15, 0, %0, c7, c6, 1" :: "r"(a) : "memory"); // DCIMVAC
+    }
+    __asm__ volatile("dsb\n\tisb" ::: "memory");
+}
+
+/// D-cache clean hook — cleans lines to PoC before device DMA reads.
+void flush_dcache_range(std::uint32_t start, std::uint32_t stop) {
+    std::uint32_t a = start & ~63u;
+    for (; a < stop; a += 64u) {
+        __asm__ volatile("mcr p15, 0, %0, c7, c14, 1" :: "r"(a) : "memory"); // DCCIMVAC
+    }
+    __asm__ volatile("dsb\n\tisb" ::: "memory");
+}
 
 /* -------------------------------- memory -------------------------------- */
 /// Diagnostic flag printed by usb_composite.cpp (was stub.cpp's heap ptr).

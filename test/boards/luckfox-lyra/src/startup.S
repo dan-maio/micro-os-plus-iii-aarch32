@@ -53,6 +53,7 @@ _start:
 	/* Install VBAR (banked per core). */
 	ldr	r0, =exception_vectors
 	mcr	p15, 0, r0, c12, c0, 0
+	isb
 
 	/* Dispatch by MPIDR core ID (bits [1:0]). */
 	mrc	p15, 0, r0, c0, c0, 5

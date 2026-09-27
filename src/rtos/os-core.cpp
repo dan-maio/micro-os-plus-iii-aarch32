@@ -33,9 +33,11 @@ extern "C" unsigned port_cpu_id(void);
 
 extern os::rtos::thread* os_idle_thread;
 
-// Context switch pending flags, one per core
+// Context switch pending flags, one per core. `_port_ctx_pending` is owned by
+// the scheduler namespace (declared in cmsis-plus/rtos/port/os-decls.h and
+// defined by each board's port_sys.cpp), so it is deliberately NOT redefined
+// here with C linkage: reschedule() and the board ISR must share one array.
 extern "C" {
-volatile unsigned _port_ctx_pending[OS_NCPU] = {};
 volatile bool _in_isr[OS_NCPU] = {};
 
 /* Per-core "alive" flag: set on this core's first 1ms timer tick, i.e. once

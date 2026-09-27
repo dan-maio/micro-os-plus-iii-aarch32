@@ -369,8 +369,7 @@ void Driver::start_tx(uint8_t ep_num, const void* buf, uint32_t len, uint8_t fif
     regs_->in_endp[ep_num].diepdma = start_addr;
 
     // 4. Set packet count and total transfer size
-    // For Bulk endpoints, maxpacket is typically 512 in High Speed
-    uint32_t max_packet = (ep_num == 0) ? 64U : 512U;
+    uint32_t max_packet = (ep_num == 0) ? 64U : (is_high_speed() ? 512U : 64U);
     uint32_t pktcnt = (len == 0) ? 1U : ((len - 1U) / max_packet + 1U);
 
     regs_->in_endp[ep_num].dieptsiz = epsiz::DIEPT_SIZ_PKT_CNT(pktcnt) | epsiz::DIEPT_SIZ_XFER_SIZE(len);
@@ -389,7 +388,7 @@ void Driver::start_rx(uint8_t ep_num, void* buf, uint32_t len) noexcept {
     // of the endpoint MPS: the core refuses/mishandles receptions armed
     // with less than one max packet. (Callers' buffers must accommodate
     // the rounded size; the completion path derives actual = len - residue.)
-    uint32_t max_packet = (ep_num == 0) ? 64U : 512U;
+    uint32_t max_packet = (ep_num == 0) ? 64U : (is_high_speed() ? 512U : 64U);
     uint32_t pktcnt = (len == 0) ? 1U : ((len - 1U) / max_packet + 1U);
     if (ep_num != 0) {
         len = pktcnt * max_packet;
