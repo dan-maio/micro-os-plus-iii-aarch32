@@ -35,32 +35,32 @@ inline constexpr std::uint32_t TIMER_ARM_FREQ = 1'000'000;
 // ============================================================================
 
 inline void set_freq(std::uint32_t freq) noexcept {
-    __asm__ volatile("mcr p15, 0, %0, c14, c0, 0" : : "r"(freq));
+    __asm__ volatile("mcr p15, 0, %0, c14, c0, 0" : : "r"(freq) : "memory");
 }
 
 inline std::uint32_t get_freq() noexcept {
     std::uint32_t freq;
-    __asm__ volatile("mrc p15, 0, %0, c14, c0, 0" : "=r"(freq));
+    __asm__ volatile("mrc p15, 0, %0, c14, c0, 0" : "=r"(freq) : : "memory");
     return freq;
 }
 
 inline void set_tval(std::uint32_t tval) noexcept {
-    __asm__ volatile("mcr p15, 0, %0, c14, c2, 0" : : "r"(tval));
+    __asm__ volatile("mcr p15, 0, %0, c14, c2, 0" : : "r"(tval) : "memory");
 }
 
 inline std::uint32_t get_tval() noexcept {
     std::uint32_t tval;
-    __asm__ volatile("mrc p15, 0, %0, c14, c2, 0" : "=r"(tval));
+    __asm__ volatile("mrc p15, 0, %0, c14, c2, 0" : "=r"(tval) : : "memory");
     return tval;
 }
 
 inline void set_ctl(std::uint32_t ctl) noexcept {
-    __asm__ volatile("mcr p15, 0, %0, c14, c2, 1" : : "r"(ctl));
+    __asm__ volatile("mcr p15, 0, %0, c14, c2, 1" : : "r"(ctl) : "memory");
 }
 
 inline std::uint32_t get_ctl() noexcept {
     std::uint32_t ctl;
-    __asm__ volatile("mrc p15, 0, %0, c14, c2, 1" : "=r"(ctl));
+    __asm__ volatile("mrc p15, 0, %0, c14, c2, 1" : "=r"(ctl) : : "memory");
     return ctl;
 }
 
@@ -70,7 +70,7 @@ inline std::uint32_t get_ctl() noexcept {
 /// differently.
 inline std::uint64_t get_count() noexcept {
     std::uint32_t lo, hi;
-    __asm__ volatile("mrrc p15, 0, %0, %1, c14" : "=r"(lo), "=r"(hi));
+    __asm__ volatile("mrrc p15, 0, %0, %1, c14" : "=r"(lo), "=r"(hi) : : "memory");
     return (static_cast<std::uint64_t>(hi) << 32) | lo;
 }
 

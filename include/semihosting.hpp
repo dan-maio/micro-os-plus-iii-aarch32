@@ -123,11 +123,16 @@ namespace semihosting
     exit (adp_stopped_applicationexit);
   }
 
+  // Same reason/status shape as the AArch64 port: ApplicationExit with a
+  // non-zero status, rather than a bare InternalError reason. On the
+  // OpenOCD path this reaches the debugger as the {reason, status} block the
+  // strong _Exit() already builds; on QEMU the status word is not transmitted
+  // (UOS_SEMIHOST_EXIT_BY_VALUE), and the verdict is still the RESULT line.
   inline void
   exit_failure () noexcept
   {
-    constexpr int adp_stopped_internalerror = 0x20023;
-    exit (adp_stopped_internalerror);
+    constexpr int adp_stopped_applicationexit = 0x20026;
+    exit (adp_stopped_applicationexit, 1);
   }
 
   // The verdict-and-stop used by a hardware test.

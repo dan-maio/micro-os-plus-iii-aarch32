@@ -356,6 +356,11 @@ namespace os
             f->vfp_hi[i] = 0;
           }
         f->fpscr = 0;
+        // Alignment word pushed as `push {r2, r3}` by the switch. The restore
+        // path pops it into r3 and immediately overwrites r3, so it is never
+        // read -- but leaving it uninitialised is still an uninitialised read,
+        // and the AArch64 port zeroes the matching `pad`.
+        f->pad = 0;
 
         // CPSR: SVC mode (0x13), interrupts enabled
         f->cpsr = 0x00000013U;
