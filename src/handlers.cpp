@@ -200,7 +200,7 @@ extern "C" [[gnu::naked]] void irq_handler()
          * stack - may that task become claimable by other cores. The C
          * scheduler staged {&old->stack_ptr, frame} in per-CPU slots. */
         "mrc    p15, 0, r0, c0, c0, 5   \n"
-        "and    r0, r0, #3              \n"
+        "and    r0, r0, #0xFF           \n"
         "movw   r1, #:lower16:_smp_pub_addr \n"
         "movt   r1, #:upper16:_smp_pub_addr \n"
         "ldr    r2, [r1, r0, lsl #2]    \n"
