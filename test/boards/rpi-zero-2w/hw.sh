@@ -41,16 +41,21 @@ SMP_DIR="${UOS_SMP_DIR:-$(cd "$ROOT/.." && pwd)/micro-os-plus-iii-smp}"
 
 # The BCM2837 facts, and only those:
 #   * entry 0x1003c, where the AArch32 image is linked;
-#   * __smp_spin is uint32_t[4], so four words are zeroed;
-#   * resume means "set CPSR then PC" -- the cores are parked in boot.S;
+#   * only core 0 is started ("set CPSR then PC"). Cores 1-3 are resumed
+#     where they were halted: in the firmware's 32-bit arm stub after the
+#     watchdog reset, waiting on their mailbox 3, until the kernel releases
+#     them (smp.cpp) once it has written their __smp_spin slot. So
+#     __smp_spin is not zeroed here. This needs an SD card that boots
+#     32-bit (arm_64bit=0) with a kernel that leaves cores 1-3 in that
+#     loop; the previous all-cores flow is kept in hw.sh.bak;
 #   * the OpenOCD configs here run `init` themselves.
 UOS_HW_CFG="$CFG" \
 UOS_HW_CFG_INIT=0 \
 UOS_HW_NM="${TC:+$TC/}arm-none-eabi-nm" \
 UOS_HW_READELF="${TC:+$TC/}arm-none-eabi-readelf" \
 UOS_HW_ENTRY=0x1003c \
-UOS_HW_SPIN_WORDS=4 \
-UOS_HW_RESUME=cpsr \
+UOS_HW_SPIN_WORDS=0 \
+UOS_HW_RESUME=cpsr-first \
 UOS_HW_NCPU=4 \
 UOS_HW_TARGET_FMT="bcm2837.cpu%d" \
 UOS_HW_PRELOAD="${UOS_HW_PRELOAD:-mww 0x3f100024 0x5a000001; mww 0x3f10001c 0x5a000020}" \
