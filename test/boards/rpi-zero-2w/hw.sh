@@ -48,9 +48,9 @@ SMP_DIR="${UOS_SMP_DIR:-$(cd "$ROOT/.." && pwd)/micro-os-plus-iii-smp}"
 #     __smp_spin is not zeroed here. This needs an SD card that boots
 #     32-bit (arm_64bit=0) with a kernel that leaves cores 1-3 in that
 #     loop; the previous all-cores flow is kept in hw.sh.bak;
-#   * the OpenOCD configs here run `init` themselves.
+#   * these OpenOCD configs are declarative, so the runner issues `init`.
 UOS_HW_CFG="$CFG" \
-UOS_HW_CFG_INIT=0 \
+UOS_HW_CFG_INIT=1 \
 UOS_HW_NM="${TC:+$TC/}arm-none-eabi-nm" \
 UOS_HW_READELF="${TC:+$TC/}arm-none-eabi-readelf" \
 UOS_HW_ENTRY=0x1003c \

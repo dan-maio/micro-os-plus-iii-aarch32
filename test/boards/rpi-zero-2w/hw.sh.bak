@@ -43,9 +43,9 @@ SMP_DIR="${UOS_SMP_DIR:-$(cd "$ROOT/.." && pwd)/micro-os-plus-iii-smp}"
 #   * entry 0x1003c, where the AArch32 image is linked;
 #   * __smp_spin is uint32_t[4], so four words are zeroed;
 #   * resume means "set CPSR then PC" -- the cores are parked in boot.S;
-#   * the OpenOCD configs here run `init` themselves.
+#   * these OpenOCD configs are declarative, so the runner issues `init`.
 UOS_HW_CFG="$CFG" \
-UOS_HW_CFG_INIT=0 \
+UOS_HW_CFG_INIT=1 \
 UOS_HW_NM="${TC:+$TC/}arm-none-eabi-nm" \
 UOS_HW_READELF="${TC:+$TC/}arm-none-eabi-readelf" \
 UOS_HW_ENTRY=0x1003c \
