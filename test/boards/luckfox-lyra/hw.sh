@@ -36,6 +36,8 @@ TC="$(ls -d "$HOME"/.local/xPacks/@xpack-dev-tools/arm-none-eabi-gcc/15.*/.conte
 SMP_DIR="${UOS_SMP_DIR:-$(cd "$ROOT/.." && pwd)/micro-os-plus-iii-smp}"
 # A workspace may keep the sibling as a `*.git` working copy.
 [ -d "$SMP_DIR" ] || SMP_DIR="$SMP_DIR.git"
+# ... or under the kernel's own name, as the port's CMakeLists also accepts.
+[ -d "$SMP_DIR" ] || SMP_DIR="$(cd "$ROOT/.." && pwd)/micro-os-plus-iii"
 
 # The miniloader leaves the MMU and caches on, with its own page tables. The
 # image is loaded over that, so the core is put back the way a reset leaves it
