@@ -33,11 +33,18 @@ ROOT="$(cd "$HERE/../../.." && pwd)"
 BUILD="${BUILD:-$ROOT/test/build-lyra}"
 
 TC="$(ls -d "$HOME"/.local/xPacks/@xpack-dev-tools/arm-none-eabi-gcc/15.*/.content/bin 2>/dev/null | sort -V | tail -1)"
-SMP_DIR="${UOS_SMP_DIR:-$(cd "$ROOT/.." && pwd)/micro-os-plus-iii-smp}"
-# A workspace may keep the sibling as a `*.git` working copy.
-[ -d "$SMP_DIR" ] || SMP_DIR="$SMP_DIR.git"
-# ... or under the kernel's own name, as the port's CMakeLists also accepts.
-[ -d "$SMP_DIR" ] || SMP_DIR="$(cd "$ROOT/.." && pwd)/micro-os-plus-iii"
+# The kernel is the sibling micro-os-plus-iii (the smp branch of
+# micro-os-plus-iii-smp.git); an older workspace may keep it as
+# micro-os-plus-iii-smp, or as a `*.git` working copy of either name.
+_siblings="$(cd "$ROOT/.." && pwd)"
+SMP_DIR="${UOS_SMP_DIR:-}"
+if [[ -z "$SMP_DIR" ]]; then
+  for _d in micro-os-plus-iii micro-os-plus-iii.git \
+            micro-os-plus-iii-smp micro-os-plus-iii-smp.git; do
+    if [[ -d "$_siblings/$_d" ]]; then SMP_DIR="$_siblings/$_d"; break; fi
+  done
+  SMP_DIR="${SMP_DIR:-$_siblings/micro-os-plus-iii}"
+fi
 
 # The miniloader leaves the MMU and caches on, with its own page tables. The
 # image is loaded over that, so the core is put back the way a reset leaves it
