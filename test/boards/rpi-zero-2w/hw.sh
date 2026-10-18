@@ -38,6 +38,8 @@ TC="$(ls -d "$HOME"/.local/xPacks/@xpack-dev-tools/arm-none-eabi-gcc/15.*/.conte
 SMP_DIR="${UOS_SMP_DIR:-$(cd "$ROOT/.." && pwd)/micro-os-plus-iii-smp}"
 # A workspace may keep the sibling as a `*.git` working copy.
 [ -d "$SMP_DIR" ] || SMP_DIR="$SMP_DIR.git"
+# ... or under the kernel's own name, as the port's CMakeLists also accepts.
+[ -d "$SMP_DIR" ] || SMP_DIR="$(cd "$ROOT/.." && pwd)/micro-os-plus-iii"
 
 # The BCM2837 facts, and only those:
 #   * entry 0x1003c, where the AArch32 image is linked;
