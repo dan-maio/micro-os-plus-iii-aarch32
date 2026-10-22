@@ -10,6 +10,8 @@
 
 #include <timer_arm.hpp>
 
+extern "C" unsigned port_cpu_id(void);
+
 namespace timer_arm {
 
 namespace {
@@ -48,11 +50,19 @@ void start_1ms() noexcept {
 void rearm_period() noexcept {
     const std::uint32_t period = period_cycles();
     std::uint64_t next = get_cval() + period;
-    // Far behind (a core halted by the debugger): resynchronise rather than
-    // replay thousands of ticks.
+    // Far behind (a core halted by the debugger, or by a slow semihosting
+    // call: the counter keeps running): resynchronise rather than replay
+    // thousands of ticks. The ticks skipped on core 0 are kernel time that
+    // never happened, so hrclock's origin moves with them; otherwise
+    // hrclock.now() would stay that far ahead of the steady count its sleeps
+    // compare with (8.9 s on the Lyra, after its start-up's semihosting).
     const std::uint64_t now = get_count();
     if (now > next + 1000ull * period) {
-        next = now + period;
+        const std::uint64_t skipped = (now + period - next) / period;
+        next += skipped * period;
+        if (port_cpu_id() == 0u) {
+            g_base += skipped * period;
+        }
     }
     set_cval(next);
 }
