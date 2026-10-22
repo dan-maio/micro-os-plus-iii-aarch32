@@ -64,6 +64,20 @@ inline std::uint32_t get_ctl() noexcept {
     return ctl;
 }
 
+/// The physical timer's 64-bit compare value (CNTP_CVAL): the interrupt is
+/// due when the counter reaches it.
+inline void set_cval(std::uint64_t cval) noexcept {
+    const std::uint32_t lo = static_cast<std::uint32_t>(cval);
+    const std::uint32_t hi = static_cast<std::uint32_t>(cval >> 32);
+    __asm__ volatile("mcrr p15, 2, %0, %1, c14" : : "r"(lo), "r"(hi) : "memory");
+}
+
+inline std::uint64_t get_cval() noexcept {
+    std::uint32_t lo, hi;
+    __asm__ volatile("mrrc p15, 2, %0, %1, c14" : "=r"(lo), "=r"(hi) : : "memory");
+    return (static_cast<std::uint64_t>(hi) << 32) | lo;
+}
+
 /// Read the physical generic-timer counter (CNTPCT, 64-bit).
 /// Named get_count() to match the AArch64 port: the shared matrix tests
 /// call it by name, and it was the only accessor the two ports spelled
@@ -74,9 +88,23 @@ inline std::uint64_t get_count() noexcept {
     return (static_cast<std::uint64_t>(hi) << 32) | lo;
 }
 
+// Resolves the counter's frequency (once: later calls, from the other
+// cores, keep the first result, so period_cycles() never changes).
 void init() noexcept;
 
+// Starts this core's tick on an absolute grid: compare = start + k * period.
 void start_1ms() noexcept;
+
+// In the tick interrupt: the next compare one period after the last one (not
+// one period from now, which would add the interrupt's latency to every
+// tick and make the kernel's clocks lose time). A tick that comes late is
+// caught up: the compare is already due and the interrupt fires again.
+void rearm_period() noexcept;
+
+// The counter's value when core 0 started its tick: the origin of the
+// kernel's hrclock, so hrclock.now() (count - origin) and the clock's own
+// tick-driven count (ticks * cycles_per_tick) agree at every tick.
+std::uint64_t hr_base() noexcept;
 
 /// Counter cycles per timer-interrupt period (frequency()/1000/OS_SYSTICK_DIV).
 std::uint32_t period_cycles() noexcept;

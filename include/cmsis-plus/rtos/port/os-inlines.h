@@ -300,7 +300,9 @@ namespace os
       inline uint64_t __attribute__ ((always_inline))
       clock_highres::hardware_counter (void) noexcept
       {
-        return timer_arm::get_count ();
+        // From core 0's tick origin, so that it agrees with the tick-driven
+        // count the kernel compares hrclock timestamps with.
+        return timer_arm::get_count () - timer_arm::hr_base ();
       }
 
       inline uint32_t __attribute__ ((always_inline))
@@ -312,7 +314,9 @@ namespace os
       inline uint32_t __attribute__ ((always_inline))
       clock_highres::cycles_per_tick (void)
       {
-        return timer_arm::frequency() / 1000;
+        // One sysclock tick is OS_SYSTICK_DIV timer periods: exactly the
+        // grid the timer is re-armed on.
+        return timer_arm::period_cycles () * OS_SYSTICK_DIV;
       }
 
       inline uint32_t __attribute__ ((always_inline))

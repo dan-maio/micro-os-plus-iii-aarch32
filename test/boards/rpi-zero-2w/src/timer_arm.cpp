@@ -51,16 +51,51 @@ void init() noexcept {
     // Do NOT trust CNTFRQ: on this board it reports 19.2 MHz while the
     // physical generic-timer counter actually increments at ~1 MHz. Always
     // measure the real rate against the fixed 1 MHz system timer.
-    g_freq = calibrate_hw_freq();
-    if (g_freq == 0u)
+    // Once: port_sys_init() runs on every core, and a recalibration by each
+    // would change period_cycles() while the cores start.
+    static bool calibrated = false;
+    if (calibrated)
       {
-        g_freq = 19'200'000u;
+        return;
       }
+    std::uint32_t f = calibrate_hw_freq();
+    if (f == 0u)
+      {
+        f = 19'200'000u;
+      }
+    g_freq = f;
+    calibrated = true;
+}
+
+namespace {
+volatile std::uint64_t g_base = 0;   // core 0's tick origin
+volatile bool g_base_set = false;
 }
 
 void start_1ms() noexcept {
-    set_tval(period_cycles());
+    const std::uint64_t now = get_count();
+    if (!g_base_set) {  // core 0, first: the hrclock origin
+        g_base = now;
+        g_base_set = true;
+    }
+    set_cval(now + period_cycles());
     set_ctl(0x1);  // ENABLE=1, IMASK=0
+}
+
+void rearm_period() noexcept {
+    const std::uint32_t period = period_cycles();
+    std::uint64_t next = get_cval() + period;
+    // Far behind (a core halted by the debugger): resynchronise rather than
+    // replay thousands of ticks.
+    const std::uint64_t now = get_count();
+    if (now > next + 1000ull * period) {
+        next = now + period;
+    }
+    set_cval(next);
+}
+
+std::uint64_t hr_base() noexcept {
+    return g_base;
 }
 
 } // namespace timer_arm

@@ -89,7 +89,7 @@ extern "C" uint32_t * port_isr_handler(uint32_t *current_sp)
       // still advances at 1 ms: core 0 calls os_systick_handler() only on
       // every OS_SYSTICK_DIV-th interrupt (preemption stays at the finer rate
       // on every core).
-      timer_arm::set_tval(timer_arm::period_cycles());
+      timer_arm::rearm_period();  // absolute: no drift
 
       _port_core_alive[cpu] = 1;   // this core is up and scheduling
 
