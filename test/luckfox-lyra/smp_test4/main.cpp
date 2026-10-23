@@ -27,11 +27,12 @@ static constexpr unsigned NWORK = 8;
 // both write to the (non-reentrant) UART from different cores.
 static mutex g_con { "con" };
 static volatile std::uint32_t hist[NWORK][OS_NCPU] = {};
+static volatile bool g_running = true;
 
 static void* worker (void* arg)
 {
   unsigned id = (unsigned)(std::uintptr_t)arg;
-  for (;;)
+  while (g_running)
   {
     unsigned c = port_cpu_id();
     if (c < OS_NCPU) hist[id][c]++;
@@ -46,10 +47,15 @@ static void* worker (void* arg)
 static void* reporter (void*)
 {
   bool s = false;
-  for (;;)
+  while (g_running)
   {
     s = !s; led::set(s);
     g_con.lock();
+    if (!g_running)
+      {
+        g_con.unlock();
+        break;
+      }
     for (unsigned w = 0; w < NWORK; ++w)
     {
       uart::uart1 << "w" << (int)w << " [";
@@ -157,6 +163,7 @@ int os_main (int, char*[])
   // Under the console mutex, so the marker a runner greps for is never
   // interleaved with a reporter line.
   g_con.lock();
+  g_running = false;
   uart1 << "\nRESULT: " << (ok ? "PASS" : "FAIL") << "\n";
   g_con.unlock();
   if (ok)

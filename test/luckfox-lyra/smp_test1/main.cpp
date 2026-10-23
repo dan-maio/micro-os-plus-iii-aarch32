@@ -26,23 +26,25 @@ static semaphore_binary g_ping { "ping", 1 };   // starts signalled
 static semaphore_binary g_pong { "pong", 0 };
 static volatile std::uint32_t g_rounds = 0;
 static volatile int g_ping_core = -1, g_pong_core = -1;
+static volatile bool g_running = true;
 
 static void* pinger (void*)
 {
-  for (;;) { g_ping.wait(); g_ping_core = (int)port_cpu_id(); ++g_rounds; g_pong.post(); }
+  while (g_running) { g_ping.wait(); if (!g_running) break; g_ping_core = (int)port_cpu_id(); ++g_rounds; g_pong.post(); }
   return nullptr;
 }
 static void* ponger (void*)
 {
-  for (;;) { g_pong.wait(); g_pong_core = (int)port_cpu_id(); g_ping.post(); }
+  while (g_running) { g_pong.wait(); if (!g_running) break; g_pong_core = (int)port_cpu_id(); g_ping.post(); }
   return nullptr;
 }
 static void* logger (void*)
 {
   bool s = false;
-  for (;;)
+  while (g_running)
   {
     s = !s; led::set(s);
+    if (!g_running) break;
     uart::uart1 << "[c" << (int)port_cpu_id() << "] rounds=" << g_rounds
                 << "  ping@c" << g_ping_core << " pong@c" << g_pong_core
                 << "  t=" << (std::uint32_t)sysclock.now() << "ms\n";
@@ -124,6 +126,9 @@ int os_main (int, char*[])
       sysclock.sleep_for(1000);
     }
   const bool ok = (test_secondaries_joined () && g_rounds > 0);
+  g_running = false;
+  g_ping.post ();
+  g_pong.post ();
   // Single puts() = single semihosted SYS_WRITE0 -> the line cannot be
   // interleaved with another core's output in the OpenOCD log.
   uart1.puts (ok ? "\nRESULT: PASS\n" : "\nRESULT: FAIL\n");
