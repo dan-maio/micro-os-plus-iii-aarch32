@@ -265,6 +265,21 @@ log_line (const char* text)
   g_semi_q->send (&m, sizeof (m));
 }
 
+// UART only: the lines the run's harness does not read (the per-PUT listing).
+// Every semihosting line is a debug trap through the probe, slow enough that a
+// dozen of them filled the semihosting queue and blocked the USB service
+// thread for seconds -- through a hub the host then gave up (I/O errors).
+void
+log_line_uart (const char* text)
+{
+  OutMsg m;
+  std::memset (&m, 0, sizeof (m));
+  m.kind = kMsgText;
+  std::strncpy (reinterpret_cast<char*> (m.data), text, kChunkData - 1u);
+  m.data[kChunkData - 1u] = '\0';
+  g_uart_q->send (&m, sizeof (m));
+}
+
 // ---------------------------------------------------------------------------
 // Storage, and the thread that owns it
 // ---------------------------------------------------------------------------
@@ -420,16 +435,23 @@ sd_mount_storage ()
   return true;
 }
 
+// Where the listing goes: both consoles, or the UART only.
+struct ListLog
+{
+  void (*out) (const char*);
+  unsigned n;
+};
+
 // One line per file, emitted through the console queues by the SD thread.
 bool
 log_list_visit (const flatfs::FileEntry& e, void* ctx)
 {
-  unsigned* n = static_cast<unsigned*> (ctx);
+  ListLog* l = static_cast<ListLog*> (ctx);
   char line[96];
   std::snprintf (line, sizeof (line), "  %-12s  %8lu\n", e.name,
                  (unsigned long)e.size_bytes);
-  log_line (line);
-  ++*n;
+  l->out (line);
+  ++l->n;
   return true;
 }
 
@@ -437,21 +459,21 @@ log_list_visit (const flatfs::FileEntry& e, void* ctx)
 // end. Called from the USB service thread; the walk itself runs in the SD
 // thread, which is the only thing allowed to touch the volume.
 void
-log_storage_listing ()
+log_storage_listing (bool semihosting = true)
 {
+  ListLog l{ semihosting ? log_line : log_line_uart, 0u };
   char hdr[96];
   std::snprintf (hdr, sizeof (hdr), "\n%s listing:\n", g_sink->name ());
-  log_line (hdr);
-  unsigned n = 0u;
-  (void)sd_list (log_list_visit, &n);
-  if (n == 0u)
+  l.out (hdr);
+  (void)sd_list (log_list_visit, &l);
+  if (l.n == 0u)
     {
-      log_line ("  (empty)\n");
+      l.out ("  (empty)\n");
     }
   else
     {
-      std::snprintf (hdr, sizeof (hdr), "  %u file(s)\n", n);
-      log_line (hdr);
+      std::snprintf (hdr, sizeof (hdr), "  %u file(s)\n", l.n);
+      l.out (hdr);
     }
 }
 
@@ -713,10 +735,10 @@ command_loop (void*)
                   }
 #endif
                 stream_file (name, filebuf, ulen); // SD + console, both paths
-                // "where the write was done", right after it was done. The
-                // run only reaches finish() on a terminating PING, so without
-                // this a plain send_file.py would never show the folder.
-                log_storage_listing ();
+                // No folder listing here: it is an SD walk the USB service
+                // thread would wait for before its reply, and through a hub
+                // the host does not wait that long (the next command then
+                // failed with an I/O error). finish () lists the folder.
               }
             // Reply only after the diagnostics. With blocking console sends
             // the hexdump has been fully delivered by now, so the reply does
@@ -917,7 +939,9 @@ os_main (int argc, char* argv[])
   // sends (see log_line/stream_file): a non-blocking post overflows the queue,
   // drops the verdict lines and lets the semihosting consumer issue a HLT
   // burst the JTAG probe cannot service.
-  g_uart_q = new message_queue ("uartq", 16u, sizeof (OutMsg));
+  // 64: a 4 KiB file's hexdump (32 chunks) and its lines fit, so the USB
+  // service thread does not wait for the UART to drain them.
+  g_uart_q = new message_queue ("uartq", 64u, sizeof (OutMsg));
   g_semi_q = new message_queue ("semiq", 16u, sizeof (OutMsg));
   g_uart_flushed = new semaphore_binary ("uartf", 0u);
   g_semi_flushed = new semaphore_binary ("semif", 0u);

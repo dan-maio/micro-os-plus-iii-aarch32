@@ -217,6 +217,13 @@ bool g_ep0_expect_status_out = false;
 // Set when the 8 SETUP bytes have been read from the RX FIFO; the request is
 // only processed on SETUP-stage-complete (pktsts=4), like Linux/TinyUSB.
 bool g_setup_pending = false;
+// What EP0 OUT is armed for. In buffer-DMA mode the receipt of a SETUP also
+// raises XFERCOMPL, before the SETUP-phase-done interrupt: that completion
+// must not be taken for the end of a status stage (the re-arm it caused left
+// EP0 OUT disabled under load, the next SETUP stuck in the RX FIFO, and the
+// host timing out -- found on the Pi 4 by the golden workspace's tutorial).
+enum class Ep0Out { setup, status };
+Ep0Out g_ep0_out = Ep0Out::setup;
 
 // Bulk OUT / IN transfer books
 const std::uint8_t* g_out_buf = nullptr;
@@ -380,6 +387,7 @@ arm_ep0_setup () noexcept
 {
   // SUPCNT=3 tolerates back-to-back SETUPs, PKTCNT=1, XFRSIZ=8; the 8 bytes
   // are DMA'd into g_setup_dma.
+  g_ep0_out = Ep0Out::setup;
   dc_clean_inval (g_setup_dma, sizeof (g_setup_dma));
   wr (DOEPDMA (0), phys (g_setup_dma));
   wr (DOEPTSIZ (0), (3u << 29) | (1u << 19) | 8u);
@@ -394,11 +402,13 @@ arm_ep0_setup () noexcept
 void
 arm_ep0_status_out () noexcept
 {
-  // SUPCNT/MC=1, PKTCNT=1, XFRSIZ=0 (Linux dwc2_hsotg_program_zlp); the
-  // (empty) status packet is DMA'd into a dummy buffer.
-  dc_clean_inval (g_ep0_rx, sizeof (g_ep0_rx));
-  wr (DOEPDMA (0), phys (g_ep0_rx));
-  wr (DOEPTSIZ (0), (1u << 29) | (1u << 19) | 0u);
+  // SUPCNT=3, PKTCNT=1, XFRSIZ=0 (Linux dwc2_hsotg_program_zlp). Into the
+  // SETUP buffer: the status packet is empty, and a SETUP that follows it
+  // before EP0 OUT is re-armed is then DMA'd where handle_ep_out () reads it.
+  g_ep0_out = Ep0Out::status;
+  dc_clean_inval (g_setup_dma, sizeof (g_setup_dma));
+  wr (DOEPDMA (0), phys (g_setup_dma));
+  wr (DOEPTSIZ (0), (3u << 29) | (1u << 19) | 0u);
   wr (DOEPCTL (0),
       (rd (DOEPCTL (0)) & bit::MPS_MASK)
           | bit::USBACTEP | bit::EPENA | bit::CNAK);
@@ -798,9 +808,13 @@ handle_ep_out () noexcept
             {
               g_dbg.ep0_out = g_dbg.ep0_out + 1;
               g_dbg.last_doepint0 = st;
-              // OUT status stage of a control-IN transfer completed.
-              g_ep0_expect_status_out = false;
-              arm_ep0_setup ();
+              // The end of a status stage: back to waiting for a SETUP. The
+              // receipt of a SETUP completes too: its SETUP interrupt follows.
+              if (g_ep0_out == Ep0Out::status)
+                {
+                  g_ep0_expect_status_out = false;
+                  arm_ep0_setup ();
+                }
             }
         }
       else if (n == 1u)
