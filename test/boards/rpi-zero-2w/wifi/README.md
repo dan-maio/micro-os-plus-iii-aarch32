@@ -176,17 +176,25 @@ In a scaffolded workspace the same two steps are
 
 ## Verified
 
-The AArch64 port's copy of these tests passed on the board on 2026-11-13 (chip 43430
-revision 1, firmware 7.45.96.s1, debug configuration, CMSIS-DAP JTAG probe, a WPA/WPA2
-mixed-mode home router with DHCP): `wifi-net` joined, leased, pinged the gateway and saved
-`tests/WIFINET.LOG`; `wifi-tcp-server` echoed and saved 256 KiB, 1 MiB and a 442211-byte
-file with equal CRC-32 on both sides. The AArch32 port builds both images and reports
-`RESULT: SKIP` for them under QEMU, but has not yet been run on the board.
+2026-11-13, Raspberry Pi Zero 2 W (chip 43430 revision 1, firmware 7.45.96.s1), debug
+configuration, CMSIS-DAP JTAG probe, a WPA/WPA2 mixed-mode home router with DHCP:
 
-Not verified: the AArch32 board run, the other chip variant (revision 2 and later, the
-`43436` image and its CLM download), open and WPA-only networks, a stream longer than the
-8 MiB capture buffer, long runs, reconnection after the access point drops the station, and
-the release configuration.
+| Case | Result |
+|---|---|
+| radio | firmware up in 391 ms, MAC address read, scan of 5 to 8 networks with their security |
+| `wifi-net` | PASS: joined, DHCP lease 192.168.1.65, gateway ping 4 of 4 (min/avg/max 3.0/6.8/16.0 ms), `tests/WIFINET.LOG` verified |
+| `wifi-tcp-server`, 256 KiB pattern | PASS: echo identical, 5.7 Mbit/s each way, CRC-32 `ff1d2b6f` equal on both sides, `tests/WIFIRX.BIN` and `WIFITCP.LOG` verified |
+| SD card on SDHOST | 30 GB card initialised (30474 MiB), FAT volume mounted, files written and read back, with the radio active |
+| `-qemu` images | `RESULT: SKIP`, passed |
+
+The AArch64 copies of the same sources passed on the board on the same day: `wifi-net`, and
+`wifi-tcp-server` with 256 KiB, 1 MiB and a 442211-byte file; that port's README has the
+numbers.
+
+Not verified: the other chip variant (revision 2 and later, the `43436` image and its CLM
+download), open and WPA-only networks, a stream longer than the 8 MiB capture buffer, long
+runs, reconnection after the access point drops the station, and the release configuration
+on hardware (the release images build).
 
 **Known issue: the first join attempt fails.** In every run since the SD thread was added,
 the firmware answers the first join request with "SSID set, status 1" (refused) and accepts
