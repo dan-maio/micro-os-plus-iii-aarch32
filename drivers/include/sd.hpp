@@ -38,8 +38,13 @@
 //   (default)            Arasan SDHCI @ 0x3F300000   (BCM2837)  -- this file
 //   SD_BACKEND_DWMMC     Synopsys DW-MMC @ 0xFF480000 (RK3506)  -- soc/rk3506/
 //   SD_BACKEND_HOSTFILE  an image file on the host    (POSIX)   -- soc/native/
+//   SD_BACKEND_SDHOST    BCM2835 SDHOST @ 0x3F202000 (BCM2837)  -- sd_sdhost.hpp
 //
-// All three define `sd::SdCard` with the same eight methods; flatfs, FatFs'
+// The fourth is the BCM2837's other controller. The Wi-Fi chip of the Zero 2 W
+// and the Pi 3 is wired to the Arasan; a test that uses the radio and the card
+// together names SDHOST for the card.
+//
+// All of them define `sd::SdCard` with the same eight methods; flatfs, FatFs'
 // diskio and the tests name only that.
 //
 // The third one has no silicon behind it and is not a simulation of the other
@@ -54,6 +59,10 @@
 #elif defined(SD_BACKEND_HOSTFILE)
 
 #include <sd_hostfile.hpp>
+
+#elif defined(SD_BACKEND_SDHOST)
+
+#include <sd_sdhost.hpp>
 
 #else
 

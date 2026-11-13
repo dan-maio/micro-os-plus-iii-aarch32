@@ -9,6 +9,7 @@
  */
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include "bcm2837.hpp"
 
@@ -30,15 +31,94 @@
 #define PORT_BANNER_CPU   "BCM2837 (4x Cortex-A53, AArch32)"
 
 
-// SEMIHOST is defined only by the hardware-run build (see hw.sh / Makefile).
-// When set, every UART byte is ALSO echoed through the ARM semihosting
-// channel, so OpenOCD ("arm semihosting enable") prints the test console to
-// its log even though the board has no USB-serial connected to the host.
+// SEMIHOST is defined by the qemu.sh / hw.sh builds. When set, console output
+// is ALSO emitted through the ARM semihosting channel, so the emulator or
+// OpenOCD ("arm semihosting enable") receives it even though the board has no
+// USB-serial connected to the host.
 #if defined(SEMIHOST)
 #include "semihosting.hpp"
 #endif
 
+// ---- What goes through semihosting ------------------------------------------
+// The same policy as the Raspberry Pi 4 B and the AArch64 port. Every
+// semihosting call halts the core until OpenOCD has served it over JTAG,
+// which costs from tens of milliseconds to seconds per call; with every
+// console line mirrored, a hardware run printed at the speed of the probe and
+// not of the UART. So:
+//   - under QEMU (no HW_BUILD) everything is mirrored: semihosting is the
+//     console there, and it is fast;
+//   - on the board only the verdict lines (RESULT / FAIL / FATAL) are
+//     mirrored, which is all the runner reads; the full console is on the
+//     UART (GPIO14/15, 115200 8N1);
+//   - SEMI_PRINTS=1 at configure time also mirrors what core 0 prints, for a
+//     run without a terminal on the UART.
+// 1: mirror every console byte to semihosting; 0: only the verdict lines.
+#if defined(SEMIHOST) && !defined(HW_BUILD)
+#define PORT_SEMIHOST_MIRROR 1
+#else
+#define PORT_SEMIHOST_MIRROR 0
+#endif
+
+// 1: on the board, also mirror core 0's console lines (SEMI_PRINTS=1).
+#if defined(SEMIHOST) && defined(HW_BUILD) && defined(SEMI_PRINTS) && SEMI_PRINTS
+#define PORT_SEMI_PRINTS_CORE0 1
+#else
+#define PORT_SEMI_PRINTS_CORE0 0
+#endif
+
 namespace uart {
+
+namespace detail {
+// True on core 0 (MPIDR.Aff0; the BCM2837 numbers its cores 0-3 there).
+inline bool on_core0() noexcept {
+    std::uint32_t mpidr;
+    asm volatile("mrc p15, 0, %0, c13, c0, 0" : "=r"(mpidr));
+    return (mpidr & 0xFFu) == 0;
+}
+
+// True for a line the hardware runner must see: the verdict or a failure.
+inline bool is_verdict(const char* s) noexcept {
+    static constexpr const char* keys[] = { "RESULT", "FAIL", "FATAL" };
+    for (const char* k : keys) {
+        for (const char* p = s; *p; ++p) {
+            const char* a = p;
+            const char* b = k;
+            while (*a && *b && *a == *b) { ++a; ++b; }
+            if (*b == '\0') return true;
+        }
+    }
+    return false;
+}
+
+// is_verdict() for a buffer that is not NUL-terminated (newlib's _write).
+inline bool is_verdict_n(const char* s, std::size_t n) noexcept {
+    static constexpr const char* keys[] = { "RESULT", "FAIL", "FATAL" };
+    for (const char* k : keys) {
+        for (std::size_t i = 0; i < n; ++i) {
+            std::size_t j = 0;
+            while (k[j] && i + j < n && s[i + j] == k[j]) ++j;
+            if (k[j] == '\0') return true;
+        }
+    }
+    return false;
+}
+
+// Whether a console piece goes to semihosting on a board that mirrors only
+// the verdict. A verdict is often printed in pieces ("\nRESULT: ", "PASS",
+// "\n"), so once a piece holding a key is mirrored, the following pieces are
+// mirrored too, up to the end of that line.
+inline bool& verdict_line_open() noexcept {
+    static bool open = false;
+    return open;
+}
+
+inline bool mirror_verdict(const char* s, std::size_t n) noexcept {
+    const bool mirror = verdict_line_open() || is_verdict_n(s, n);
+    if (mirror && n != 0)
+        verdict_line_open() = (s[n - 1] != '\n');
+    return mirror;
+}
+} // namespace detail
 
 class Uart1 {
 public:
@@ -66,8 +146,11 @@ public:
 
     void putc(char c) const noexcept {
         write_raw(c);
-#if defined(SEMIHOST)
+#if PORT_SEMIHOST_MIRROR
         semihosting::write_char(c);
+#elif PORT_SEMI_PRINTS_CORE0
+        if (detail::on_core0())
+            semihosting::write_char(c);
 #endif
     }
 
@@ -77,10 +160,18 @@ public:
                 write_raw('\r');
             write_raw(*p);
         }
-#if defined(SEMIHOST)
-        // Send the whole string in one SYS_WRITE0 call (far cheaper than a
-        // HLT per byte). '\n' is enough on the OpenOCD host console.
+#if PORT_SEMIHOST_MIRROR
+        // Whole string in ONE SYS_WRITE0 — far cheaper than a trap per byte.
         semihosting::write_str(str);
+#elif defined(SEMIHOST)
+        std::size_t n = 0;
+        while (str[n]) ++n;
+        if (detail::mirror_verdict(str, n))
+            semihosting::write_str(str);
+#if PORT_SEMI_PRINTS_CORE0
+        else if (detail::on_core0())
+            semihosting::write_str(str);
+#endif
 #endif
     }
 
