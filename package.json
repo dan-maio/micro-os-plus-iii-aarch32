@@ -1,6 +1,6 @@
 {
   "name": "@micro-os-plus/micro-os-plus-iii-aarch32",
-  "version": "0.1.0",
+  "version": "0.1.0-pre.1",
   "description": "A source code library with µOS++ AArch32 port",
   "main": "",
   "scripts": {
