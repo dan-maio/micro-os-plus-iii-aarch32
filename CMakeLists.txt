@@ -1,8 +1,8 @@
 # micro-os-plus-iii-aarch32 — integration (xpack-development) model. The kernel is
 # added by the harness and consumed as micro-os-plus::iii-core (THIN; the port
-# owns startup/trace); the dissolved SoC targets are defined here (their
-# sources are compiled through the consumer's micro-os-plus::board); the
-# board-fact contract comes via micro-os-plus::test-support. Exports
+# owns startup/trace); the SoC and device targets are the device packages'
+# (micro-os-plus-iii-devices-*); the board-fact contract comes via
+# micro-os-plus::test-support. Exports
 # micro-os-plus::aarch32. (Authored for the integration — the smp-branch root
 # used the standalone sibling + devices model.)
 cmake_minimum_required (VERSION 3.20)
@@ -32,69 +32,5 @@ if (NOT TARGET micro-os-plus::aarch32)
 endif ()
 
 # -----------------------------------------------------------------------------
-# Dissolved devices support: SD host, USB, and FatFs stack.
-if (NOT TARGET micro-os-plus::devices)
-  add_library (micro-os-plus-iii-devices-interface INTERFACE)
-  target_include_directories (
-    micro-os-plus-iii-devices-interface
-    INTERFACE
-      "${CMAKE_CURRENT_SOURCE_DIR}/drivers/include"
-      "${CMAKE_CURRENT_SOURCE_DIR}/drivers/fatfs"
-  )
-  target_sources (
-    micro-os-plus-iii-devices-interface
-    INTERFACE
-      "${CMAKE_CURRENT_SOURCE_DIR}/drivers/src/sd.cpp"
-      "${CMAKE_CURRENT_SOURCE_DIR}/drivers/src/flatfs.cpp"
-      "${CMAKE_CURRENT_SOURCE_DIR}/drivers/src/usb_dwc2.cpp"
-      "${CMAKE_CURRENT_SOURCE_DIR}/drivers/fatfs/ff.c"
-      "${CMAKE_CURRENT_SOURCE_DIR}/drivers/fatfs/diskio_sd.cpp"
-      "${CMAKE_CURRENT_SOURCE_DIR}/drivers/fatfs/fatfs_hw.cpp"
-  )
-  add_library (micro-os-plus::devices ALIAS micro-os-plus-iii-devices-interface)
-endif ()
-
-# -----------------------------------------------------------------------------
-# Dissolved SoC support: BCM2837 silicon (formerly micro-os-plus-iii-devices).
-# Headers only: the board target (micro-os-plus::board, built by the consumer)
-# compiles soc/<soc>/src/*.cpp, so listing them here as well would link them
-# twice.
-if (NOT TARGET micro-os-plus::soc-bcm2837)
-  add_library (micro-os-plus-iii-soc-bcm2837-interface INTERFACE)
-  target_include_directories (
-    micro-os-plus-iii-soc-bcm2837-interface
-    INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/soc/bcm2837/include"
-  )
-  add_library (micro-os-plus::soc-bcm2837
-               ALIAS micro-os-plus-iii-soc-bcm2837-interface)
-endif ()
-
-# -----------------------------------------------------------------------------
-# Dissolved devices support over the RK3506 SD host (Luckfox Lyra B): the same
-# filesystem drivers as micro-os-plus::devices, the DesignWare SD backend, no
-# USB gadget.
-if (NOT TARGET micro-os-plus::devices-rk3506)
-  add_library (micro-os-plus-iii-devices-rk3506-interface INTERFACE)
-  target_include_directories (
-    micro-os-plus-iii-devices-rk3506-interface
-    INTERFACE
-      "${CMAKE_CURRENT_SOURCE_DIR}/drivers/include"
-      "${CMAKE_CURRENT_SOURCE_DIR}/drivers/fatfs"
-      "${CMAKE_CURRENT_SOURCE_DIR}/soc/rk3506/include"
-  )
-  target_compile_definitions (
-    micro-os-plus-iii-devices-rk3506-interface INTERFACE SD_BACKEND_DWMMC
-  )
-  target_sources (
-    micro-os-plus-iii-devices-rk3506-interface
-    INTERFACE
-      "${CMAKE_CURRENT_SOURCE_DIR}/soc/rk3506/src/sdmmc.cpp"
-      "${CMAKE_CURRENT_SOURCE_DIR}/soc/rk3506/src/sd_dwmmc.cpp"
-      "${CMAKE_CURRENT_SOURCE_DIR}/drivers/src/flatfs.cpp"
-      "${CMAKE_CURRENT_SOURCE_DIR}/drivers/fatfs/ff.c"
-      "${CMAKE_CURRENT_SOURCE_DIR}/drivers/fatfs/diskio_sd.cpp"
-      "${CMAKE_CURRENT_SOURCE_DIR}/drivers/fatfs/fatfs_hw.cpp"
-  )
-  add_library (micro-os-plus::devices-rk3506
-               ALIAS micro-os-plus-iii-devices-rk3506-interface)
-endif ()
+# The SoC and device targets (micro-os-plus::soc-*, ::devices*) are the device
+# packages': micro-os-plus-iii-devices-bcm283x, -rk3506 and -storage.
