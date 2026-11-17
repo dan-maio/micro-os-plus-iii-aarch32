@@ -1,6 +1,7 @@
 # micro-os-plus-iii-aarch32 — integration (xpack-development) model. The kernel is
 # added by the harness and consumed as micro-os-plus::iii-core (THIN; the port
-# owns startup/trace); the dissolved BCM2837 SoC is compiled locally; the
+# owns startup/trace); the dissolved SoC targets are defined here (their
+# sources are compiled through the consumer's micro-os-plus::board); the
 # board-fact contract comes via micro-os-plus::test-support. Exports
 # micro-os-plus::aarch32. (Authored for the integration — the smp-branch root
 # used the standalone sibling + devices model.)
@@ -13,54 +14,21 @@ project (micro-os-plus-iii-aarch32 LANGUAGES C CXX ASM)
 # adds the kernel. The targets below link kernel targets by name, which CMake
 # resolves when it generates, so the kernel may be added after the port.
 
-file (GLOB _board_decls CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/test/boards/*/board.cmake")
-set (_board_ids "")
-foreach (_decl IN LISTS _board_decls)
-  get_filename_component (_dir "${_decl}" DIRECTORY)
-  get_filename_component (_id "${_dir}" NAME)
-  list (APPEND _board_ids "${_id}")
-endforeach ()
-list (SORT _board_ids)
-set (BOARD "rpi-zero-2w" CACHE STRING "Target board (one of: ${_board_ids})")
-set_property (CACHE BOARD PROPERTY STRINGS ${_board_ids})
-if (NOT BOARD IN_LIST _board_ids)
-  message (FATAL_ERROR "BOARD=${BOARD} is not a board of this port.")
-endif ()
-include ("${CMAKE_CURRENT_SOURCE_DIR}/test/boards/${BOARD}/board.cmake")
-foreach (_r IN ITEMS UOS_BOARD_SRC_DIR UOS_BOARD_FLAGS UOS_BOARD_NCPU UOS_BOARD_CAPS
-                     UOS_BOARD_LINKER_HW UOS_BOARD_DEFINES)
-  if (NOT DEFINED ${_r})
-    message (FATAL_ERROR "board.cmake does not set ${_r}.")
-  endif ()
-endforeach ()
-get_filename_component (UOS_BOARD_SRC_DIR "${UOS_BOARD_SRC_DIR}" ABSOLUTE)
-foreach (_v IN ITEMS UOS_BOARD_SRC_DIR UOS_BOARD_NCPU UOS_BOARD_CAPS
-                     UOS_BOARD_LINKER_HW UOS_BOARD_LINKER_QEMU)
-  set (${_v} "${${_v}}" CACHE INTERNAL "board fact")
-endforeach ()
-file (GLOB _board_sources CONFIGURE_DEPENDS
-      "${UOS_BOARD_SRC_DIR}/src/*.cpp" "${UOS_BOARD_SRC_DIR}/src/*.S"
-      "${UOS_BOARD_SRC_DIR}/src/rtos/*.cpp")
-file (GLOB _soc_sources CONFIGURE_DEPENDS
-      "${CMAKE_CURRENT_SOURCE_DIR}/soc/bcm2837/src/*.cpp")
+set (UOS_AARCH32_ROOT "${CMAKE_CURRENT_SOURCE_DIR}" CACHE INTERNAL "")
 
+# The port reads no board. A board (its SoC folder, flags, defines, start-up and
+# linker scripts) is the consumer's: the test platforms of micro-os-plus-iii
+# build a `micro-os-plus::board` target and link it after this one.
 if (NOT TARGET micro-os-plus::aarch32)
   add_library (micro-os-plus-iii-aarch32-interface INTERFACE)
-  target_include_directories (micro-os-plus-iii-aarch32-interface INTERFACE
-    "include" "soc/bcm2837/include" "${UOS_BOARD_SRC_DIR}/include")
+  target_include_directories (micro-os-plus-iii-aarch32-interface INTERFACE "include")
   target_sources (micro-os-plus-iii-aarch32-interface INTERFACE
     src/context_switch.cpp src/exception_handler.cpp src/handlers.cpp src/semihosting-exit.cpp src/smp_secondary.cpp
-    src/rtos/os-core.cpp
-    ${_soc_sources} ${_board_sources})
-  target_compile_definitions (micro-os-plus-iii-aarch32-interface INTERFACE ${UOS_BOARD_DEFINES})
-  target_compile_options    (micro-os-plus-iii-aarch32-interface INTERFACE ${UOS_BOARD_FLAGS})
-  target_link_options       (micro-os-plus-iii-aarch32-interface INTERFACE ${UOS_BOARD_FLAGS})
+    src/rtos/os-core.cpp)
   target_link_libraries (micro-os-plus-iii-aarch32-interface INTERFACE
-    micro-os-plus::iii-core micro-os-plus::port-smp-decls micro-os-plus::test-support
-    ${UOS_BOARD_LIBS})
+    micro-os-plus::iii-core micro-os-plus::port-smp-decls micro-os-plus::test-support)
   add_library (micro-os-plus::aarch32 ALIAS micro-os-plus-iii-aarch32-interface)
-  set (UOS_PORT_BARE_LIB micro-os-plus::aarch32 CACHE INTERNAL "port bare library")
-  message (STATUS "µOS++ IIIe aarch32 port: micro-os-plus::aarch32 (BOARD=${BOARD})")
+  message (STATUS "µOS++ IIIe aarch32 port: micro-os-plus::aarch32")
 endif ()
 
 # -----------------------------------------------------------------------------
@@ -88,8 +56,9 @@ endif ()
 
 # -----------------------------------------------------------------------------
 # Dissolved SoC support: BCM2837 silicon (formerly micro-os-plus-iii-devices).
-# Headers only: the port target above already compiles soc/bcm2837/src/*.cpp,
-# so listing them here as well would link them twice.
+# Headers only: the board target (micro-os-plus::board, built by the consumer)
+# compiles soc/<soc>/src/*.cpp, so listing them here as well would link them
+# twice.
 if (NOT TARGET micro-os-plus::soc-bcm2837)
   add_library (micro-os-plus-iii-soc-bcm2837-interface INTERFACE)
   target_include_directories (

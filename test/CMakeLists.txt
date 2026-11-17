@@ -71,9 +71,9 @@ set (BOARD_TEST_NEED_DEVICES "")
 # Tests that bring their own start-up code and must NOT also get test/src/.
 set (BOARD_TEST_SELF_CONTAINED "")
 # Tests that compile NO KERNEL at all -- the bare-metal probes that run before
-# a scheduler exists. They link the port's bare target instead of its full one
-# and are declared NO_KERNEL, so no kernel, no port scheduler and no OS_NCPU
-# reach them. A port with no such test never sets UOS_PORT_BARE_LIB.
+# a scheduler exists. They link the port and the board (this port has no
+# separate bare target) and are declared NO_KERNEL, so no kernel and no OS_NCPU
+# reach them.
 set (BOARD_TEST_NO_KERNEL "")
 function (board_test_defines _app _out)
   set (${_out} "" PARENT_SCOPE)
@@ -190,15 +190,12 @@ foreach (_dir IN LISTS _test_dirs)
     set_source_files_properties (${_srcs} PROPERTIES COMPILE_OPTIONS "${_app_options}")
   endif ()
 
-  set (_libs micro-os-plus::aarch32)
+  # The port, then the board (its SoC, facts and code: the consumer's
+  # micro-os-plus::board).
+  set (_libs micro-os-plus::aarch32 micro-os-plus::board)
   set (_no_kernel "")
   if ("${_app}" IN_LIST BOARD_TEST_NO_KERNEL)
-    if (NOT UOS_PORT_BARE_LIB)
-      message (FATAL_ERROR
-               "${_app} is listed in BOARD_TEST_NO_KERNEL, but this port "
-               "declares no bare target (UOS_PORT_BARE_LIB).")
-    endif ()
-    set (_libs ${UOS_PORT_BARE_LIB})
+    set (_libs micro-os-plus::aarch32 micro-os-plus::board)
     set (_no_kernel NO_KERNEL)
   endif ()
   if ("${_app}" IN_LIST BOARD_TEST_NEED_DEVICES)
