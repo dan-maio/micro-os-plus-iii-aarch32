@@ -52,9 +52,9 @@ namespace semihosting
   //                      OpenOCD takes the reason as a POINTER to the reason
   //                      word.
   //
-  // Getting the QEMU case wrong is not fatal to run-qemu.sh (it reads the
-  // RESULT line), but it makes QEMU return exit code 1, which a CTest-style
-  // runner would report as a failure.
+  // Getting the QEMU case wrong is not fatal to the CTest case (it reads the
+  // RESULT line), but it makes QEMU return exit code 1, which a runner that
+  // looks at the exit code would report as a failure.
 #if defined(QEMU_BUILD)
 #define UOS_SEMIHOST_TRAP ".arm\n svc 0x123456\n"       /* Angel, QEMU */
 #define UOS_SEMIHOST_EXIT_BY_VALUE 1

@@ -31,7 +31,7 @@
 #define PORT_BANNER_CPU   "BCM2837 (4x Cortex-A53, AArch32)"
 
 
-// SEMIHOST is defined by the qemu.sh / hw.sh builds. When set, console output
+// SEMIHOST is defined by the -qemu / -hwd builds. When set, console output
 // is ALSO emitted through the ARM semihosting channel, so the emulator or
 // OpenOCD ("arm semihosting enable") receives it even though the board has no
 // USB-serial connected to the host.
