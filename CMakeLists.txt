@@ -8,21 +8,10 @@ cmake_minimum_required (VERSION 3.20)
 project (micro-os-plus-iii-aarch32 LANGUAGES C CXX ASM)
 
 # -----------------------------------------------------------------------------
-# Dependencies: SMP kernel (brings iii, iii-core, port-smp-decls, test-support).
-get_filename_component (_uos_siblings "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
-
-set (UOS_SMP_DIR "${_uos_siblings}/micro-os-plus-iii"
-     CACHE PATH "µOS++ III SMP kernel working copy")
-
-if (NOT TARGET micro-os-plus::iii-core)
-  if (NOT EXISTS "${UOS_SMP_DIR}/CMakeLists.txt")
-    if (EXISTS "${_uos_siblings}/micro-os-plus-iii-smp/CMakeLists.txt")
-      set (UOS_SMP_DIR "${_uos_siblings}/micro-os-plus-iii-smp" CACHE PATH
-           "µOS++ III sibling working copy" FORCE)
-    endif ()
-  endif ()
-  add_subdirectory ("${UOS_SMP_DIR}" micro-os-plus-iii-smp)
-endif ()
+# The kernel (micro-os-plus::iii and its parts) is not added here. Like every
+# µOS++ port, this is a leaf library: the consumer (the tests, an application)
+# adds the kernel. The targets below link kernel targets by name, which CMake
+# resolves when it generates, so the kernel may be added after the port.
 
 file (GLOB _board_decls CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/test/boards/*/board.cmake")
 set (_board_ids "")
