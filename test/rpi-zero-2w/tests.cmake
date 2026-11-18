@@ -9,11 +9,11 @@
 
 # Tests that reach the SD card or the USB device controller, and so link
 # UOS_BOARD_DEVICES (boards/<id>/board.cmake names which driver set that is).
-# usb_test stays on that set (the old FatFs on the boot card, flatfs under
-# QEMU) for now: its posix-io + Chan FatFs version lost the board's JTAG link
-# right after mounting (2026-11-18, 3 runs in 3), where this one passes on the
-# same board. To be investigated before it is converted again.
-set (BOARD_TEST_NEED_DEVICES usb_test)
+set (BOARD_TEST_NEED_DEVICES "")
+# usb_test reaches the card through µOS++ POSIX I/O and Chan FatFs (mounted at
+# /sd/ by uos_test_storage_start()); its USB gadget is
+# micro-os-plus::devices-usb (board_test_libs below).
+list (APPEND UOS_TESTS_STORAGE usb_test)
 
 # Per-test -D flags, carried over from the per-test Makefiles.
 function (board_test_defines _app _out)
@@ -43,6 +43,8 @@ endfunction ()
 function (board_test_libs _app _out)
   if (_app STREQUAL "wifi-net" OR _app STREQUAL "wifi-tcp-server")
     set (${_out} aarch32-rpi-zero-2w-wifi PARENT_SCOPE)
+  elseif (_app STREQUAL "usb_test")
+    set (${_out} micro-os-plus::devices-usb PARENT_SCOPE)
   else ()
     set (${_out} "" PARENT_SCOPE)
   endif ()
