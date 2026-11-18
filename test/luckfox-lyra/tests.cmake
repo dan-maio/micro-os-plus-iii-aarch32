@@ -62,7 +62,10 @@ function (board_test_defines _app _out)
     set (_d SMP_TEST_INT4_DIAG SMP_TEST_INT4_DYNAMIC_AFFINITY
             UOS_CONSOLE_UART_ONLY)
   elseif (_app STREQUAL "smp_test_int5")
-    set (_d SMP_TEST_INT5_SELFTRIG)
+    # Its console stays on the UART: two lines per M0 interrupt, each a
+    # semihosting write over the WCH-Link, dropped the link and ran past the
+    # 600 s cap. Only the verdict goes through semihosting (report_result()).
+    set (_d SMP_TEST_INT5_SELFTRIG UOS_CONSOLE_UART_ONLY)
   endif ()
   set (${_out} "${_d}" PARENT_SCOPE)
 endfunction ()

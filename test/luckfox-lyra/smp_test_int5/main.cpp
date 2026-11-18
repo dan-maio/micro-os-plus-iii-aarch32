@@ -33,6 +33,7 @@
 #include <gic.hpp>
 #include <exception_handler.hpp>
 #include <smp.hpp>
+#include <semihosting.hpp>
 
 extern "C" unsigned port_cpu_id(void);
 
@@ -467,16 +468,21 @@ int os_main(int argc, char* argv[])
 
   // Run a bounded number of beats, then report and exit. The runner needs a
   // RESULT line and a semihosting stop, so the test must not sleep forever.
-  for (unsigned it = 1; it <= 20; ++it)
+  // Two: every beat brings each core several interrupts from the M0, each
+  // with its console line -- 20 beats ran past the runner's 600 s cap, and 5
+  // still made a long run.
+  constexpr unsigned kBeats = 2;
+  for (unsigned it = 1; it <= kBeats; ++it)
     {
       sysclock.sleep_for(1000);
-      uart1 << "beat " << static_cast<int>(it) << "/20\n";
+      uart1 << "beat " << static_cast<int>(it) << "/" << static_cast<int>(kBeats) << "\n";
     }
 
-  // uart1 << putc() also writes the semihosting channel, so this reaches both
-  // the terminal and the OpenOCD log the runner greps; the return goes through
-  // the port's strong _Exit() (semihosting SYS_EXIT).
+  // The console is the UART only (UOS_CONSOLE_UART_ONLY, tests.cmake): the
+  // verdict goes to the terminal here and, through report_result(), to the
+  // semihosting log the runner greps, followed by the SYS_EXIT.
   uart1 << "\nRESULT: PASS\n";
+  semihosting::report_result (true);
   return 0;
 }
 
