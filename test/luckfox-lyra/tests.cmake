@@ -28,7 +28,6 @@ set (_lyra_tests "${CMAKE_CURRENT_LIST_DIR}")
 # smp_test_int4 does NOT: it drives the card from its own interrupt-driven
 # sdmmc.cpp, as /dev/sd (sd/sd-block-device-irq.cpp, board_test_sd_posix
 # OWN); linking both copies would define sdcard::SdMmc twice.
-set (BOARD_TEST_NEED_DEVICES "")
 list (APPEND UOS_TESTS_STORAGE smp_test5 smp_test7 smp_test_int4)
 function (board_test_sd_posix _app _out)
   if (_app STREQUAL "smp_test_int4")

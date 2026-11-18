@@ -7,9 +7,6 @@
 # state for itself.
 # -----------------------------------------------------------------------------
 
-# Tests that reach the SD card or the USB device controller, and so link
-# UOS_BOARD_DEVICES (boards/<id>/board.cmake names which driver set that is).
-set (BOARD_TEST_NEED_DEVICES "")
 # usb_test reaches the card through µOS++ POSIX I/O and Chan FatFs (mounted at
 # /sd/ by uos_test_storage_start()); its USB gadget is
 # micro-os-plus::devices-usb (board_test_libs below).

@@ -3,7 +3,7 @@
 send_file.py — send one host file to the µOS++ usb_test gadget.
 
 The device (core-0 USB thread) reads the file from the bulk OUT endpoint,
-writes it to the SD card through flatfs, and re-sends it to its UART and
+writes it to the SD card (/sd/tests/), and re-sends it to its UART and
 semihosting consoles as a framed canonical hexdump:
 
     ---- BEGIN <name> (<n> bytes) ----

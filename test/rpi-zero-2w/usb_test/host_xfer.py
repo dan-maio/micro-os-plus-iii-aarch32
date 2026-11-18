@@ -6,14 +6,14 @@ Vendor-specific bulk class, VID:PID 1d6b:0104, interface 0, EP 0x81 IN /
 0x01 OUT. The wire protocol is the one in usb_test/protocol.hpp.
 
   * PING reports liveness (and the sink the device selected).
-  * PUT  sends a file; the device stores it (flatfs on SD, or RAM) and streams
+  * PUT  sends a file; the device stores it (on the SD card, or RAM) and streams
          it to the UART/semihosting consoles.
   * GET  reads a file back.
   * LIST lists stored files.
 
 With no arguments it runs the size matrix from the design spec: 0, 1, 511,
 512, 513, 1024, 65536, 1048576 — bracketing the short-packet boundary, the
-zero-length-packet rule, the empty transfer and multi-block flatfs writes.
+zero-length-packet rule, the empty transfer and multi-block card writes.
 
 Requires pyusb and, for non-root use, the udev rule documented in README.md.
 """
@@ -236,9 +236,9 @@ def run_matrix(dev, args):
     st, listing = do_list(dev)
     if st != 0:
         die(f"LIST: {STATUS_STR.get(st, st)}")
-    # HW_BUILD stores on the card's FAT32 through FatFs, which is built
-    # without long-name support, so LIST reports 8.3 names in upper case
-    # ("XFER.BIN"). The QEMU build uses flatfs, which keeps the name as sent.
+    # The card is FAT32 through Chan FatFs (/sd/tests/), built with long
+    # names, so LIST reports the name as sent; comparing in upper case also
+    # matches an 8.3 name ("XFER.BIN") from a FatFs without long names.
     names = {n.upper(): s for n, s in parse_list(listing)}
     want = args.name.upper()
     if want not in names:
