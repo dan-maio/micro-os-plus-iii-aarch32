@@ -1,20 +1,15 @@
 /*
  * sink.cpp — storage backends for usb_test.
  */
-#include <cmsis-plus/posix-io/directory.h>
-#include <cmsis-plus/posix-io/file-system.h>
-#include <cmsis-plus/posix-io/io.h>
-
-#include <fcntl.h>
-#include <sys/stat.h>
-
-#include <cerrno>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
 
 #include "protocol.hpp"
 #include "sink.hpp"
+
+#if defined(HW_BUILD)
+#include "fatfs_hw.hpp"
+#endif
 
 namespace usbtest
 {
@@ -48,12 +43,7 @@ valid_name (const char* n) noexcept
   std::size_t i = 0;
   for (; n[i] != '\0'; ++i)
     {
-      if (i >= kNameMax)
-        {
-          return false;
-        }
-      // A name, not a path: it must stay in /sd/tests/.
-      if (n[i] == '/' || n[i] == '\\')
+      if (i >= flatfs::kNameMax)
         {
           return false;
         }
@@ -61,43 +51,190 @@ valid_name (const char* n) noexcept
   return true;
 }
 
-// The file's path on the card.
-void
-card_path (const char* n, char out[48]) noexcept
+Sink::Result
+map_flatfs (flatfs::FlatFs::Result r) noexcept
 {
-  std::snprintf (out, 48, "/sd/tests/%s", n);
+  switch (r)
+    {
+    case flatfs::FlatFs::Result::ok:
+      return Sink::Result::ok;
+    case flatfs::FlatFs::Result::err_not_found:
+      return Sink::Result::not_found;
+    case flatfs::FlatFs::Result::err_no_space:
+    case flatfs::FlatFs::Result::err_full:
+      return Sink::Result::no_space;
+    case flatfs::FlatFs::Result::err_name:
+      return Sink::Result::bad_name;
+    case flatfs::FlatFs::Result::err_buf:
+      return Sink::Result::too_large;
+    default:
+      return Sink::Result::io_error;
+    }
 }
 
 } // anonymous namespace
 
 // ---------------------------------------------------------------------------
-// PosixSink
+// FlatFsSink
 // ---------------------------------------------------------------------------
 Sink::Result
-PosixSink::put (const char* n, const void* data, std::uint32_t len)
+FlatFsSink::put (const char* n, const void* data, std::uint32_t len)
 {
   if (!valid_name (n))
     {
       return Result::bad_name;
     }
-  char path[48];
-  card_path (n, path);
-  os::posix::io* f = os::posix::open (path, O_WRONLY | O_CREAT | O_TRUNC);
-  if (f == nullptr)
-    {
-      return (errno == ENOSPC) ? Result::no_space : Result::io_error;
-    }
-  const bool ok = f->write (data, len) == static_cast<ssize_t> (len);
-  const int err = errno;
-  if (f->close () != 0 || !ok)
-    {
-      return (err == ENOSPC) ? Result::no_space : Result::io_error;
-    }
-  return Result::ok;
+  return map_flatfs (fs_.write_file (n, data, len));
 }
 
 Sink::Result
-PosixSink::get (const char* n, void* buf, std::uint32_t cap,
+FlatFsSink::get (const char* n, void* buf, std::uint32_t cap,
+                 std::uint32_t& out_len)
+{
+  if (!valid_name (n))
+    {
+      return Result::bad_name;
+    }
+  out_len = 0u;
+  return map_flatfs (fs_.read_file (n, buf, cap, &out_len));
+}
+
+Sink::Result
+FlatFsSink::list (flatfs::FileVisitor v, void* ctx)
+{
+  return map_flatfs (fs_.list (v, ctx));
+}
+
+// ---------------------------------------------------------------------------
+// RamUartSink
+// ---------------------------------------------------------------------------
+#if defined(HW_BUILD)
+
+namespace
+{
+
+// One character of an 8.3 name. FatFs with FF_USE_LFN = 0 accepts upper-case
+// alphanumerics and a small punctuation set; everything else becomes '_'.
+char
+up83 (char c) noexcept
+{
+  if (c >= 'a' && c <= 'z')
+    {
+      return static_cast<char> (c - 'a' + 'A');
+    }
+  const bool keep = (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+                    || c == '_' || c == '-' || c == '~';
+  return keep ? c : '_';
+}
+
+struct FatVisitPack
+{
+  flatfs::FileVisitor v;
+  void* ctx;
+};
+
+bool
+fat_visit_trampoline (const char* n, std::uint32_t size, void* ctx) noexcept
+{
+  FatVisitPack* p = static_cast<FatVisitPack*> (ctx);
+  flatfs::FileEntry e;
+  std::uint32_t i = 0;
+  for (; n[i] != '\0' && i < flatfs::kNameMax; ++i)
+    {
+      e.name[i] = n[i];
+    }
+  e.name[i] = '\0';
+  e.start_block = 0u;
+  e.size_bytes = size;
+  e.valid = true;
+  return p->v (e, p->ctx);
+}
+
+} // anonymous namespace
+
+void
+FatFsSink::to_83 (const char* n, char out[13]) noexcept
+{
+  std::size_t len = 0;
+  while (n[len] != '\0')
+    {
+      ++len;
+    }
+  // Split at the LAST dot, so "a.tar.gz" keeps "GZ".
+  std::size_t stem_len = len;
+  for (std::size_t i = 0; i < len; ++i)
+    {
+      if (n[i] == '.')
+        {
+          stem_len = i;
+        }
+    }
+
+  char stem[9];
+  std::size_t sn = 0;
+  for (std::size_t i = 0; i < stem_len && sn < 8u; ++i)
+    {
+      stem[sn++] = up83 (n[i]);
+    }
+  if (stem_len > 8u)
+    {
+      // Truncated. The classic "~1" tail keeps names that share their first
+      // six characters from colliding on the leading eight.
+      stem[6] = '~';
+      stem[7] = '1';
+      sn = 8u;
+    }
+  if (sn == 0u)
+    {
+      stem[sn++] = '_';
+    }
+
+  char ext[4];
+  std::size_t en = 0;
+  if (stem_len < len)
+    {
+      for (std::size_t i = stem_len + 1u; i < len && en < 3u; ++i)
+        {
+          ext[en++] = up83 (n[i]);
+        }
+    }
+
+  std::size_t o = 0;
+  for (std::size_t i = 0; i < sn; ++i)
+    {
+      out[o++] = stem[i];
+    }
+  if (en != 0u)
+    {
+      out[o++] = '.';
+      for (std::size_t i = 0; i < en; ++i)
+        {
+          out[o++] = ext[i];
+        }
+    }
+  out[o] = '\0';
+}
+
+bool
+FatFsSink::mount () noexcept
+{
+  return fatfshw::mount_volume () && fatfshw::ensure_tests_dir ();
+}
+
+Sink::Result
+FatFsSink::put (const char* n, const void* data, std::uint32_t len)
+{
+  if (!valid_name (n))
+    {
+      return Result::bad_name;
+    }
+  char leaf[13];
+  to_83 (n, leaf);
+  return fatfshw::store_file (leaf, data, len) ? Result::ok : Result::io_error;
+}
+
+Sink::Result
+FatFsSink::get (const char* n, void* buf, std::uint32_t cap,
                 std::uint32_t& out_len)
 {
   out_len = 0u;
@@ -105,26 +242,18 @@ PosixSink::get (const char* n, void* buf, std::uint32_t cap,
     {
       return Result::bad_name;
     }
-  char path[48];
-  card_path (n, path);
-  struct stat st;
-  if (os::posix::stat (path, &st) != 0)
+  char leaf[13];
+  to_83 (n, leaf);
+  std::uint32_t size = 0u;
+  if (!fatfshw::file_size (leaf, size))
     {
       return Result::not_found;
     }
-  const std::uint32_t size = static_cast<std::uint32_t> (st.st_size);
   if (size > cap)
     {
       return Result::too_large;
     }
-  os::posix::io* f = os::posix::open (path, O_RDONLY);
-  if (f == nullptr)
-    {
-      return Result::io_error;
-    }
-  const bool ok = f->read (buf, size) == static_cast<ssize_t> (size);
-  f->close ();
-  if (!ok)
+  if (!fatfshw::load_file (leaf, buf, size))
     {
       return Result::io_error;
     }
@@ -133,38 +262,14 @@ PosixSink::get (const char* n, void* buf, std::uint32_t cap,
 }
 
 Sink::Result
-PosixSink::list (FileVisitor v, void* ctx)
+FatFsSink::list (flatfs::FileVisitor v, void* ctx)
 {
-  os::posix::directory* dir = os::posix::opendir ("/sd/tests");
-  if (dir == nullptr)
-    {
-      return Result::io_error;
-    }
-  for (dirent* d = dir->read (); d != nullptr; d = dir->read ())
-    {
-      FileEntry e;
-      std::uint32_t i = 0;
-      for (; d->d_name[i] != '\0' && i < kNameMax; ++i)
-        {
-          e.name[i] = d->d_name[i];
-        }
-      e.name[i] = '\0';
-      char path[48];
-      card_path (d->d_name, path);
-      struct stat st;
-      e.size_bytes = (os::posix::stat (path, &st) == 0)
-                         ? static_cast<std::uint32_t> (st.st_size)
-                         : 0u;
-      e.start_block = 0u;
-      e.valid = true;
-      if (!v (e, ctx))
-        {
-          break;
-        }
-    }
-  dir->close ();
+  FatVisitPack p{ v, ctx };
+  (void)fatfshw::visit_tests_dir (&fat_visit_trampoline, &p);
   return Result::ok;
 }
+
+#endif // HW_BUILD
 
 std::uint8_t RamUartSink::buf_[kRamFileMax] = {};
 
@@ -176,7 +281,7 @@ RamUartSink::put (const char* n, const void* data, std::uint32_t len)
       return Result::bad_name;
     }
   std::uint32_t i = 0;
-  for (; n[i] != '\0' && i < kNameMax; ++i)
+  for (; n[i] != '\0' && i < flatfs::kNameMax; ++i)
     {
       name_[i] = n[i];
     }
@@ -236,15 +341,15 @@ RamUartSink::get (const char* n, void* buf, std::uint32_t cap,
 }
 
 Sink::Result
-RamUartSink::list (FileVisitor v, void* ctx)
+RamUartSink::list (flatfs::FileVisitor v, void* ctx)
 {
   if (!has_)
     {
       return Result::ok; // empty listing
     }
-  FileEntry e;
+  flatfs::FileEntry e;
   std::uint32_t i = 0;
-  for (; name_[i] != '\0' && i < kNameMax; ++i)
+  for (; name_[i] != '\0' && i < flatfs::kNameMax; ++i)
     {
       e.name[i] = name_[i];
     }
