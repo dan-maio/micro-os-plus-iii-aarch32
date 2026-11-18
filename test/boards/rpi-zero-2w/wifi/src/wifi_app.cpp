@@ -7,9 +7,15 @@
 
 #include <cmsis-plus/rtos/os.h>
 
-#include <fatfs_hw.hpp>
-#include <sd.hpp>
+#include <cmsis-plus/posix-io/file-system.h>
+#include <cmsis-plus/posix-io/io.h>
+#include <cmsis-plus/posix/sys/statvfs.h>
+#include <uos-test-storage.h>
 
+#include <fcntl.h>
+#include <sys/stat.h>
+
+#include <cerrno>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -43,67 +49,79 @@ namespace rpiz2w::wifi_app
     // time so a multi-megabyte file needs no second copy in RAM.
     std::uint8_t g_verify[64 * 1024];
 
+    // The files go to /sd/tests/, through µOS++ POSIX I/O, on the boot
+    // card's FAT volume (the posix-io block device /dev/sd with Chan FatFs,
+    // mounted by uos_test_storage_start(); never formatted). The card is on
+    // SDHOST (micro-os-plus::devices-sdhost-posix): the Arasan is the radio's.
     bool
     store_and_verify (const char* leaf, const void* data, std::uint32_t size)
     {
-      (void)fatfshw::remove_file (leaf);
-      if (!fatfshw::store_file (leaf, data, size))
+      char path[64];
+      std::snprintf (path, sizeof (path), "/sd/tests/%s", leaf);
+      os::posix::io* f = os::posix::open (path, O_WRONLY | O_CREAT | O_TRUNC);
+      bool ok = (f != nullptr);
+      if (ok)
         {
-          kprintf ("[SD] write tests/%s failed: %s\n", leaf,
-                   fatfshw::last_error ());
+          ok = f->write (data, size) == static_cast<ssize_t> (size);
+          ok = (f->close () == 0) && ok;
+        }
+      if (!ok)
+        {
+          kprintf ("[SD] write %s failed (errno %d)\n", path, errno);
           return false;
         }
-      std::uint32_t stored = 0;
-      if (!fatfshw::file_size (leaf, stored) || stored != size)
+      struct stat st;
+      if (os::posix::stat (path, &st) != 0
+          || static_cast<std::uint32_t> (st.st_size) != size)
         {
-          kprintf ("[SD] tests/%s is %u bytes, expected %u\n", leaf,
-                   static_cast<unsigned> (stored),
+          kprintf ("[SD] %s is not %u bytes\n", path,
                    static_cast<unsigned> (size));
           return false;
         }
+      f = os::posix::open (path, O_RDONLY);
+      if (f == nullptr)
+        {
+          kprintf ("[SD] %s cannot be opened (errno %d)\n", path, errno);
+          return false;
+        }
       const auto* expected = static_cast<const std::uint8_t*> (data);
-      for (std::uint32_t at = 0; at < size;)
+      for (std::uint32_t at = 0; ok && at < size;)
         {
           const std::uint32_t piece
               = size - at < sizeof (g_verify) ? size - at : sizeof (g_verify);
-          if (!fatfshw::load_file_at (leaf, at, g_verify, piece)
+          if (f->read (g_verify, piece) != static_cast<ssize_t> (piece)
               || std::memcmp (g_verify, expected + at, piece) != 0)
             {
-              kprintf ("[SD] tests/%s differs at offset %u\n", leaf,
+              kprintf ("[SD] %s differs at offset %u\n", path,
                        static_cast<unsigned> (at));
-              return false;
+              ok = false;
             }
           at += piece;
         }
-      kprintf ("[SD] saved tests/%s, %u bytes, read back and verified\n",
-               leaf, static_cast<unsigned> (size));
-      return true;
+      f->close ();
+      if (ok)
+        {
+          kprintf ("[SD] saved %s, %u bytes, read back and verified\n", path,
+                   static_cast<unsigned> (size));
+        }
+      return ok;
     }
 
     void*
     sd_func (void*)
     {
-      // The card is on SDHOST (SD_BACKEND_SDHOST): the Arasan is the radio's.
-      static sd::SdCard card;
-      if (!card.init ())
+      // /dev/sd's first FAT partition mounted at /sd/, /sd/tests/ created.
+      uos_test_storage_start ();
+      struct statvfs vfs;
+      if (os::posix::statvfs ("/sd/", &vfs) != 0)
         {
-          kprintf ("[SD] card init failed: %s\n", card.last_error ());
+          kprintf ("[SD] no FAT volume mounted at /sd/\n");
           g_sd_failed = true;
         }
       else
         {
-          fatfshw::bind_card (card);
-          if (!fatfshw::mount_volume () || !fatfshw::ensure_tests_dir ())
-            {
-              kprintf ("[SD] mount failed: %s\n", fatfshw::last_error ());
-              g_sd_failed = true;
-            }
-          else
-            {
-              kprintf ("[SD] card ready: %u MiB, FAT volume mounted, files "
-                       "go to tests/\n",
-                       static_cast<unsigned> (card.capacity_bytes () >> 20));
-            }
+          kprintf ("[SD] FAT volume mounted at /sd/, files go to "
+                   "/sd/tests/\n");
         }
       g_sd_ready = true;
 

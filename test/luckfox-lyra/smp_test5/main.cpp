@@ -4,10 +4,22 @@
 #include <uart.hpp>
 #include <exception_handler.hpp>
 #include <smp.hpp>
-#include <ff.hpp>
 #include <semihosting.hpp>
 
-using namespace fatfs;
+// The card through µOS++ POSIX I/O: its FAT volume mounted at /sd/ (the
+// posix-io block device /dev/sd with Chan FatFs, uos_test_storage_start()).
+#include <cmsis-plus/posix-io/directory.h>
+#include <cmsis-plus/posix-io/file-system.h>
+#include <cmsis-plus/posix-io/io.h>
+#include <cmsis-plus/posix/sys/statvfs.h>
+#include <uos-test-storage.h>
+
+#include <fcntl.h>
+#include <sys/stat.h>
+
+#include <cerrno>
+#include <cstdio>
+#include <cstring>
 
 static os::rtos::mutex uart_mtx("uart_lock");
 
@@ -84,82 +96,49 @@ extern "C"
   }
 }
 
-FATFS g_fs;
-BYTE  g_work[4096];
-
-static const char* fres_str(FRESULT r)
-{
-  switch (r)
-  {
-    case FR_OK: return "OK";
-    case FR_DISK_ERR: return "DISK_ERR";
-    case FR_INT_ERR: return "INT_ERR";
-    case FR_NOT_READY: return "NOT_READY";
-    case FR_NO_FILE: return "NO_FILE";
-    case FR_NO_PATH: return "NO_PATH";
-    case FR_INVALID_NAME: return "INVALID_NAME";
-    case FR_DENIED: return "DENIED";
-    case FR_EXIST: return "EXIST";
-    case FR_INVALID_OBJECT: return "INVALID_OBJECT";
-    case FR_WRITE_PROTECTED: return "WRITE_PROTECTED";
-    case FR_INVALID_DRIVE: return "INVALID_DRIVE";
-    case FR_NOT_ENABLED: return "NOT_ENABLED";
-    case FR_NO_FILESYSTEM: return "NO_FILESYSTEM";
-    case FR_MKFS_ABORTED: return "MKFS_ABORTED";
-    case FR_TIMEOUT: return "TIMEOUT";
-    case FR_LOCKED: return "LOCKED";
-    case FR_NOT_ENOUGH_CORE: return "NOT_ENOUGH_CORE";
-    case FR_TOO_MANY_OPEN_FILES: return "TOO_MANY_OPEN_FILES";
-    case FR_INVALID_PARAMETER: return "INVALID_PARAMETER";
-    default: return "UNKNOWN";
-  }
-}
-
-static void print_attr(uint8_t attr, uint8_t bit, char c)
-{
-  uart::uart1.putc((attr & bit) ? c : '-');
-}
-
+// The volume, its folders first-level and below: "D" for a folder.
 static void list_dir(const char* path, int depth)
 {
-  Dir dir;
-  FRESULT r = dir.open(path);
-  if (r != FR_OK)
+  os::posix::directory* dir = os::posix::opendir(path);
+  if (dir == nullptr)
   {
     uart_mtx.lock();
-    uart::uart1 << "  failed to open '" << path << "': " << fres_str(r) << "\n";
+    uart::uart1 << "  failed to open '" << path << "': errno " << errno << "\n";
     uart_mtx.unlock();
     return;
   }
 
   int count = 0;
-  for (const auto& fno : dir)
+  for (dirent* e = dir->read(); e != nullptr; e = dir->read())
   {
+    char subpath[128];
+    int n = snprintf(subpath, sizeof(subpath), "%s%s", path, e->d_name);
+    struct stat st;
+    const bool ok = n > 0 && n < (int)sizeof(subpath)
+                    && os::posix::stat(subpath, &st) == 0;
+    const bool is_dir = ok && S_ISDIR(st.st_mode);
+
     uart_mtx.lock();
     for (int i = 0; i < depth; ++i)
       uart::uart1 << "  ";
-    print_attr(fno.fattrib, AM_DIR, 'D');
-    print_attr(fno.fattrib, AM_RDO, 'R');
-    print_attr(fno.fattrib, AM_HID, 'H');
-    print_attr(fno.fattrib, AM_SYS, 'S');
-    print_attr(fno.fattrib, AM_ARC, 'A');
-    uart::uart1 << ' ' << fno.fname;
-    if (fno.fattrib & AM_DIR)
+    uart::uart1.putc(is_dir ? 'D' : '-');
+    uart::uart1 << ' ' << e->d_name;
+    if (is_dir)
       uart::uart1 << '/';
     uart::uart1 << ' ';
-    uart::uart1.print_dec(fno.fsize);
+    uart::uart1.print_dec(ok ? static_cast<uint32_t>(st.st_size) : 0u);
     uart::uart1 << " B\n";
     uart_mtx.unlock();
 
-    if ((fno.fattrib & AM_DIR) && fno.fname[0] != '.')
+    if (is_dir && e->d_name[0] != '.' && n + 1 < (int)sizeof(subpath))
     {
-      char subpath[128];
-      int n = snprintf(subpath, sizeof(subpath), "%s%s/", path, fno.fname);
-      if (n > 0 && n < (int)sizeof(subpath))
-        list_dir(subpath, depth + 1);
+      subpath[n] = '/';
+      subpath[n + 1] = '\0';
+      list_dir(subpath, depth + 1);
     }
     ++count;
   }
+  dir->close();
 
   if (count == 0)
   {
@@ -226,112 +205,94 @@ static void* sd_card_thread_func(void*)
   uart::uart1 << "\n[SD] SD card thread started on core " << (int)core << "\n";
   uart_mtx.unlock();
 
-  FRESULT r = f_mount(&g_fs, "0:", 1);
-  if (r == FR_NO_FILESYSTEM)
+  // The card's FAT volume at /sd/ (never formatted), /sd/tests/ created.
+  uos_test_storage_start();
+  struct statvfs vfs;
+  if (os::posix::statvfs("/sd/", &vfs) != 0)
   {
     uart_mtx.lock();
-    uart::uart1 << "[SD] No FAT filesystem found. Creating FAT32...\n";
-    uart_mtx.unlock();
-    MKFS_PARM parm;
-    memset(&parm, 0, sizeof(parm));
-    parm.fmt = FM_FAT32 | FM_SFD;
-    parm.au_size = 0x10000;
-    r = f_mkfs("0:", &parm, g_work, sizeof(g_work));
-    uart_mtx.lock();
-    uart::uart1 << "[SD] f_mkfs: " << fres_str(r) << "\n";
-    uart_mtx.unlock();
-    if (r == FR_OK)
-      r = f_mount(&g_fs, "0:", 1);
-  }
-
-  if (r != FR_OK)
-  {
-    uart_mtx.lock();
-    uart::uart1 << "[SD] Mount failed: " << fres_str(r) << "\n";
+    uart::uart1 << "[SD] Mount failed: no FAT volume at /sd/ (errno " << errno << ")\n";
     uart_mtx.unlock();
     semihosting::report_result (false);
   }
 
   uart_mtx.lock();
   uart::uart1 << "[SD] Filesystem mounted OK\n";
-  uart_mtx.unlock();
-
-  DWORD free_clusters;
-  FATFS* fs_ptr = &g_fs;
-  r = f_getfree("0:", &free_clusters, &fs_ptr);
-  if (r == FR_OK)
-  {
-    DWORD total_sectors = (fs_ptr->n_fatent - 2) * fs_ptr->csize;
-    DWORD free_sectors = free_clusters * fs_ptr->csize;
-    uart_mtx.lock();
-    uart::uart1 << "[SD] Total: ~" << (total_sectors / 2048) << " MB"
-                << "  Free: ~" << (free_sectors / 2048) << " MB"
-                << "  Cluster: " << (fs_ptr->csize * 512) << " B\n";
-    uart_mtx.unlock();
-  }
-
-  uart_mtx.lock();
+  uart::uart1 << "[SD] Total: ~"
+              << static_cast<int>((unsigned long long)vfs.f_blocks * vfs.f_frsize >> 20) << " MB"
+              << "  Free: ~"
+              << static_cast<int>((unsigned long long)vfs.f_bfree * vfs.f_frsize >> 20) << " MB\n";
   uart::uart1 << "[SD] Root directory listing:\n";
   uart_mtx.unlock();
-  list_dir("0:/", 0);
+  list_dir("/sd/", 0);
+
+  static const char kPath[] = "/sd/tests/smp_test5.txt";
+  static const char kLine1[] = "Hello from Luckfox Lyra µOS++ SMP Test 5!\n";
+  static const char kLine2[] = "SD card working with FatFS on 3 cores\n";
 
   uart_mtx.lock();
-  uart::uart1 << "[SD] Creating test file smp_test5.txt...\n";
+  uart::uart1 << "[SD] Creating test file " << kPath << "...\n";
   uart_mtx.unlock();
   {
-    File f;
-    r = f.open("0:/smp_test5.txt", FA_WRITE | FA_CREATE_ALWAYS);
-    if (r == FR_OK)
+    os::posix::io* f = os::posix::open(kPath, O_WRONLY | O_CREAT | O_TRUNC);
+    bool ok = (f != nullptr);
+    if (ok)
     {
-      UINT bw;
-      f.write("Hello from Luckfox Lyra µOS++ SMP Test 5!\n", 44, &bw);
-      f.write("SD card working with FatFS on 3 cores\n", 39, &bw);
-      f.close();
-      uart_mtx.lock();
+      ok = f->write(kLine1, std::strlen(kLine1)) == (ssize_t)std::strlen(kLine1);
+      ok = ok && f->write(kLine2, std::strlen(kLine2)) == (ssize_t)std::strlen(kLine2);
+      ok = (f->close() == 0) && ok;
+    }
+    uart_mtx.lock();
+    if (ok)
       uart::uart1 << "[SD] Test file written OK\n";
-      uart_mtx.unlock();
-    }
     else
-    {
-      uart_mtx.lock();
-      uart::uart1 << "[SD] Write failed: " << fres_str(r) << "\n";
-      uart_mtx.unlock();
+      uart::uart1 << "[SD] Write failed: errno " << errno << "\n";
+    uart_mtx.unlock();
+    if (!ok)
       semihosting::report_result (false);
-    }
   }
 
   uart_mtx.lock();
   uart::uart1 << "[SD] Reading test file back:\n";
   uart_mtx.unlock();
   {
-    File f;
-    r = f.open("0:/smp_test5.txt", FA_READ);
-    if (r == FR_OK)
+    os::posix::io* f = os::posix::open(kPath, O_RDONLY);
+    if (f == nullptr)
     {
       uart_mtx.lock();
-      uart::uart1 << "[SD]   Content: ";
-      uart_mtx.unlock();
-      char buf[128];
-      UINT br;
-      while (f.read(buf, sizeof(buf) - 1, &br) == FR_OK && br > 0)
-      {
-        buf[br] = 0;
-        uart_mtx.lock();
-        uart::uart1 << buf;
-        uart_mtx.unlock();
-      }
-      uart_mtx.lock();
-      uart::uart1 << "\n[SD] Readback complete\n";
-      uart_mtx.unlock();
-      f.close();
-    }
-    else
-    {
-      uart_mtx.lock();
-      uart::uart1 << "[SD] Read failed: " << fres_str(r) << "\n";
+      uart::uart1 << "[SD] Read failed: errno " << errno << "\n";
       uart_mtx.unlock();
       semihosting::report_result (false);
     }
+    char buf[128];
+    std::size_t total = 0;
+    bool same = true;
+    char expected[128];
+    snprintf(expected, sizeof(expected), "%s%s", kLine1, kLine2);
+    uart_mtx.lock();
+    uart::uart1 << "[SD]   Content: ";
+    uart_mtx.unlock();
+    for (;;)
+    {
+      ssize_t br = f->read(buf, sizeof(buf) - 1);
+      if (br <= 0)
+        break;
+      buf[br] = 0;
+      if (total + br > std::strlen(expected)
+          || std::memcmp(buf, expected + total, br) != 0)
+        same = false;
+      total += br;
+      uart_mtx.lock();
+      uart::uart1 << buf;
+      uart_mtx.unlock();
+    }
+    f->close();
+    same = same && total == std::strlen(expected);
+    uart_mtx.lock();
+    uart::uart1 << "\n[SD] Readback " << (same ? "complete, content OK" : "MISMATCH") << "\n";
+    uart_mtx.unlock();
+    if (!same)
+      semihosting::report_result (false);
   }
 
   uart_mtx.lock();

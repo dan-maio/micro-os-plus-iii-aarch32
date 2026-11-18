@@ -9,8 +9,11 @@
 
 # Tests that reach the SD card or the USB device controller, and so link
 # UOS_BOARD_DEVICES (boards/<id>/board.cmake names which driver set that is).
-set (BOARD_TEST_NEED_DEVICES
-     usb_test)
+set (BOARD_TEST_NEED_DEVICES "")
+# usb_test reaches the card through µOS++ POSIX I/O and Chan FatFs (mounted at
+# /sd/ by uos_test_storage_start()); its USB gadget is
+# micro-os-plus::devices-usb (board_test_libs below).
+list (APPEND UOS_TESTS_STORAGE usb_test)
 
 # Per-test -D flags, carried over from the per-test Makefiles.
 function (board_test_defines _app _out)
@@ -106,6 +109,8 @@ function (board_test_libs _app _out)
   elseif (_app STREQUAL "cmsis-os-validator")
     set (${_out} test::cmsis-os-validator xpacks::arm-cmsis-os-validator
          aarch32-rpi3b-harness-suite PARENT_SCOPE)
+  elseif (_app STREQUAL "usb_test")
+    set (${_out} micro-os-plus::devices-usb PARENT_SCOPE)
   else ()
     set (${_out} "" PARENT_SCOPE)
   endif ()

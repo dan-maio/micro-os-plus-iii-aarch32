@@ -15,7 +15,7 @@ namespace usbtest
 inline constexpr std::uint32_t kCmdMagic = 0x58534F55u; // 'UOSX' little-endian
 inline constexpr std::uint32_t kRspMagic = 0x52534F55u; // 'UOSR'
 
-inline constexpr std::uint32_t kNameField = 20u; // matches flatfs::kNameMax + 1
+inline constexpr std::uint32_t kNameField = 20u; // matches usbtest::kNameMax + 1 (sink.hpp)
 
 enum class Op : std::uint8_t
 {

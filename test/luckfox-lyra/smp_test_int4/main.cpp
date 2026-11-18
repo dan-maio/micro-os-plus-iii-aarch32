@@ -15,7 +15,7 @@
 //   * DW-MMC    (GIC ID discovered)  -> core 2 : data-transfer-over completion
 //
 // The USB ISR (core 0) enqueues each keystroke and posts g_key_avail; the
-// sdlog thread (core 2) formats a line and appends it to keys.log via FatFS,
+// sdlog thread (core 2) formats a line and appends it to tests/keys.log (posix-io, Chan FatFs),
 // whose block writes now complete on the DW-MMC DTO interrupt (core 2) that
 // posts g_sd_done — the canonical ISR->thread wakeup, twice, across cores.
 //
@@ -33,7 +33,15 @@
 #include <smp.hpp>
 #include <test-console.hpp>
 #include "sdmmc.hpp"
-#include "ff.hpp"
+// The card through µOS++ POSIX I/O: this test's own interrupt-driven driver
+// as the block device /dev/sd (sd/sd-block-device-irq.cpp), its FAT volume
+// mounted at /sd/ with Chan FatFs (uos_test_storage_start()).
+#include <cmsis-plus/posix-io/file.h>
+#include <cmsis-plus/posix-io/file-system.h>
+#include <cmsis-plus/posix-io/io.h>
+#include <uos-test-storage.h>
+
+#include <fcntl.h>
 
 extern "C" unsigned port_cpu_id(void);
 
@@ -323,11 +331,9 @@ static uint32_t gic_find_new_spi(uint32_t exclude1, uint32_t exclude2)
 }
 
 // ---------------------------------------------------------------------------
-// FatFS log file
+// The log file, /sd/tests/keys.log, kept open (appended, synced every 8 lines)
 // ---------------------------------------------------------------------------
-using namespace fatfs;
-static FATFS g_fs;
-static FIL   g_logfile;
+static os::posix::file* g_logfile = nullptr;
 static bool  g_log_open = false;
 
 // ---------------------------------------------------------------------------
@@ -395,8 +401,9 @@ extern "C"
 }
 
 // ---------------------------------------------------------------------------
-// Core 2 thread: sdlog — consumes keystrokes, appends to keys.log via FatFS.
-// The f_write -> disk_write -> SdMmc::write_blocks path now completes on the
+// Core 2 thread: sdlog — consumes keystrokes, appends to keys.log through
+// posix-io and Chan FatFs. The posix write -> Chan FatFs -> /dev/sd ->
+// SdMmc::write_blocks path completes on the
 // DW-MMC DTO interrupt (posted to g_sd_done by sd_irq_service on core 2).
 // ---------------------------------------------------------------------------
 static void* sdlog_thread_func(void*)
@@ -426,15 +433,15 @@ static void* sdlog_thread_func(void*)
       p = append_str(p, "\r\n");
       *p = 0;
 
-      UINT bw = 0;
-      FRESULT fr = f_write(&g_logfile, line, static_cast<UINT>(p - line), &bw);
-      if (fr != FR_OK) { g_sd_errors = g_sd_errors + 1; continue; }
+      const ssize_t n = static_cast<ssize_t>(p - line);
+      if (g_logfile->write(line, static_cast<std::size_t>(n)) != n)
+        { g_sd_errors = g_sd_errors + 1; continue; }
       g_lines_logged = g_lines_logged + 1;
 
       if (++since_sync >= 8)                     // periodic durability flush
         {
           since_sync = 0;
-          if (f_sync(&g_logfile) != FR_OK) g_sd_errors = g_sd_errors + 1;
+          if (g_logfile->fsync() != 0) g_sd_errors = g_sd_errors + 1;
         }
     }
   return nullptr;
@@ -489,27 +496,23 @@ static void* led_thread_func(void*)
 // ---------------------------------------------------------------------------
 // SD bring-up + FatFS mount (polled — runs before IRQ mode is armed)
 // ---------------------------------------------------------------------------
-extern sdcard::SdMmc& sd_disk();     // sd/diskio_sd_irq.cpp — the FatFS instance
+extern sdcard::SdMmc& sd_disk();     // sd/sd-block-device-irq.cpp — /dev/sd's driver
 
 static bool sd_bring_up()
 {
   txq_write("Bringing up SD card (polled)...\n");
-  if (!sd_disk().init())
-    { txq_write("SD init FAILED\n"); return false; }
-  sd_disk().set_transfer_clock(24000000u);       // 24 MHz transfer clock
+  // The polled bring-up (init, 24 MHz transfer clock) happens at the first
+  // open of /dev/sd, here: its FAT volume mounted at /sd/, /sd/tests/ made.
+  uos_test_storage_start();
 
-  FRESULT fr = f_mount(&g_fs, "0:", 1);
-  if (fr != FR_OK)
-    { txq_write("f_mount FAILED\n"); return false; }
-
-  fr = f_open(&g_logfile, "0:/keys.log", FA_OPEN_APPEND | FA_WRITE);
-  if (fr != FR_OK)
-    { txq_write("f_open keys.log FAILED\n"); return false; }
+  g_logfile = static_cast<os::posix::file*>(
+      os::posix::open("/sd/tests/keys.log", O_WRONLY | O_CREAT | O_APPEND));
+  if (g_logfile == nullptr)
+    { txq_write("open /sd/tests/keys.log FAILED (no SD card or no FAT volume)\n"); return false; }
 
   const char* banner = "\r\n==== smp_test_int4 session start ====\r\n";
-  UINT bw = 0;
-  f_write(&g_logfile, banner, static_cast<UINT>(__builtin_strlen(banner)), &bw);
-  f_sync(&g_logfile);
+  g_logfile->write(banner, __builtin_strlen(banner));
+  g_logfile->fsync();
   g_log_open = true;
   txq_write("SD mounted, keys.log open (polled writes so far)\n");
   return true;
@@ -557,7 +560,7 @@ int os_main(int argc, char* argv[])
       sd_disk().enable_hw_interrupts();            // unmask DTO at the controller
       gic_pend_snapshot(g_pend_base);
       // One more sync forces a data write whose DTO asserts the (masked-at-GIC) line.
-      f_sync(&g_logfile);
+      g_logfile->fsync();
       uint32_t found = 0;
       for (int ms = 0; ms < 2000 && !found; ms += 10)
         { found = gic_find_new_spi(g_usb_irq_id, 0); if (!found) sysclock.sleep_for(10); }
@@ -639,7 +642,7 @@ int os_main(int argc, char* argv[])
 #endif
             "\nType on the PC (run host/kbd_forward): each key is logged to\n"
             "keys.log on the SD card via the interrupt-completed write path.\n"
-            "Pull the card afterward and read keys.log.\n"
+            "Pull the card afterward and read tests/keys.log.\n"
             "---------------------------------------------------------------\n\n");
 
   // The verdict: the host must configure the OTG1 gadget within two minutes.

@@ -22,14 +22,21 @@
 # is the directory of whoever is calling.
 set (_lyra_tests "${CMAKE_CURRENT_LIST_DIR}")
 
-# micro-os-plus::devices-rk3506 -- the RK3506 SD host under the flatfs/FatFs
-# layers the Pi shares. smp_test5 and smp_test7 take it for sdcard::SdMmc,
-# which the C++ FatFs disk glue calls. smp_test_int4 does NOT: it drives the
-# card from its own interrupt-driven sdmmc.cpp, and linking both copies would
-# define sdcard::SdMmc twice.
-set (BOARD_TEST_NEED_DEVICES
-    
-     smp_test5 smp_test7)
+# The SD card, through µOS++ POSIX I/O and Chan FatFs (mounted at /sd/ by
+# uos_test_storage_start()). smp_test5 and smp_test7 reach it through the
+# board's set (UOS_BOARD_SD_POSIX: the RK3506 SD host as /dev/sd).
+# smp_test_int4 does NOT: it drives the card from its own interrupt-driven
+# sdmmc.cpp, as /dev/sd (sd/sd-block-device-irq.cpp, board_test_sd_posix
+# OWN); linking both copies would define sdcard::SdMmc twice.
+set (BOARD_TEST_NEED_DEVICES "")
+list (APPEND UOS_TESTS_STORAGE smp_test5 smp_test7 smp_test_int4)
+function (board_test_sd_posix _app _out)
+  if (_app STREQUAL "smp_test_int4")
+    set (${_out} OWN PARENT_SCOPE)
+  else ()
+    set (${_out} "${UOS_BOARD_SD_POSIX}" PARENT_SCOPE)
+  endif ()
+endfunction ()
 
 # Carried over whole from the predecessor, each with its own
 # smp_install_boot_threads(). Adding the board's shared copy from src/ would
@@ -63,29 +70,26 @@ endfunction ()
 # Beyond each test's own main.cpp: the board's carried code it takes, and the
 # subdirectory it brings itself. One entry per test, from that test's Makefile.
 #
-#   smp_test5      C++ FatFs over the board's SD driver
+#   smp_test5      nothing: the card is the board's /dev/sd (posix-io)
 #   smp_test6      USB vendor gadget: the eight shared DWC2 sources plus its
 #                  own gadget, DMA pool and environment
-#   smp_test7      the same eight, its own three, and the C++ FatFs: it
-#                  streams a file off the card over USB
+#   smp_test7      the same eight and its own three: it streams a file
+#                  off the card over USB (the card: the board's /dev/sd)
 #   smp_test_int3  none of the shared USB sources -- its usb1_int3.cpp drives
 #                  the DWC2 registers directly, from the interrupt
-#   smp_test_int4  the same, plus its own interrupt-driven SD driver and disk
-#                  glue under the shared C++ FatFs
+#   smp_test_int4  the same, plus its own interrupt-driven SD driver as
+#                  /dev/sd under posix-io and Chan FatFs
 #   smp_test_int5  m0_blob.S, which embeds the Cortex-M0 firmware built below
 function (board_test_sources _app _out)
   set (_s "")
-  if (_app STREQUAL "smp_test5")
-    set (_s ${UOS_BOARD_FATFS_CPP_SOURCES} ${UOS_BOARD_FATFS_CPP_DISKIO})
-  elseif (_app STREQUAL "smp_test6")
+  if (_app STREQUAL "smp_test6")
     set (_s ${UOS_BOARD_USB_CORE_SOURCES}
             "${_lyra_tests}/smp_test6/usb/usb_vendor_gadget.cpp"
             ${UOS_BOARD_USB_GADGET_SOURCES})
   elseif (_app STREQUAL "smp_test7")
     set (_s ${UOS_BOARD_USB_CORE_SOURCES}
             "${_lyra_tests}/smp_test7/usb/usb_vendor_gadget.cpp"
-            ${UOS_BOARD_USB_GADGET_SOURCES}
-            ${UOS_BOARD_FATFS_CPP_SOURCES} ${UOS_BOARD_FATFS_CPP_DISKIO})
+            ${UOS_BOARD_USB_GADGET_SOURCES})
   elseif (_app STREQUAL "smp_test_int3")
     set (_s ${UOS_BOARD_USB_INT_SOURCES}
             "${_lyra_tests}/smp_test_int3/usb/usb_env_int3.cpp")
@@ -93,8 +97,7 @@ function (board_test_sources _app _out)
     set (_s ${UOS_BOARD_USB_INT_SOURCES}
             "${_lyra_tests}/smp_test_int4/usb/usb_env_int3.cpp"
             "${_lyra_tests}/smp_test_int4/sd/sdmmc.cpp"
-            "${_lyra_tests}/smp_test_int4/sd/diskio_sd_irq.cpp"
-            ${UOS_BOARD_FATFS_CPP_SOURCES})
+            "${_lyra_tests}/smp_test_int4/sd/sd-block-device-irq.cpp")
   elseif (_app STREQUAL "smp_test_int5")
     set (_s "${_lyra_tests}/smp_test_int5/m0_blob.S")
   endif ()
@@ -104,17 +107,14 @@ endfunction ()
 # smp_test_int4's own sd/ comes first, so its sdmmc.hpp wins over the board's.
 function (board_test_includes _app _out)
   set (_i "")
-  if (_app STREQUAL "smp_test5")
-    set (_i ${UOS_BOARD_FATFS_CPP_INCLUDE})
-  elseif (_app STREQUAL "smp_test6")
+  if (_app STREQUAL "smp_test6")
     set (_i ${UOS_BOARD_USB_INCLUDE})
   elseif (_app STREQUAL "smp_test7")
-    set (_i ${UOS_BOARD_USB_INCLUDE} ${UOS_BOARD_FATFS_CPP_INCLUDE})
+    set (_i ${UOS_BOARD_USB_INCLUDE})
   elseif (_app STREQUAL "smp_test_int3")
     set (_i ${UOS_BOARD_USB_INCLUDE})
   elseif (_app STREQUAL "smp_test_int4")
-    set (_i "${_lyra_tests}/smp_test_int4/sd"
-            ${UOS_BOARD_FATFS_CPP_INCLUDE} ${UOS_BOARD_USB_INCLUDE})
+    set (_i "${_lyra_tests}/smp_test_int4/sd" ${UOS_BOARD_USB_INCLUDE})
   endif ()
   set (${_out} "${_i}" PARENT_SCOPE)
 endfunction ()

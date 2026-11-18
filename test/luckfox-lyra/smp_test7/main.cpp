@@ -5,12 +5,21 @@
 #include <exception_handler.hpp>
 #include <smp.hpp>
 #include <test-console.hpp>
-#include <ff.hpp>
 
+// The card through µOS++ POSIX I/O: its FAT volume mounted at /sd/ (the
+// posix-io block device /dev/sd with Chan FatFs, uos_test_storage_start()).
+#include <cmsis-plus/posix-io/directory.h>
+#include <cmsis-plus/posix-io/file-system.h>
+#include <cmsis-plus/posix-io/io.h>
+#include <cmsis-plus/posix/sys/statvfs.h>
+#include <uos-test-storage.h>
+
+#include <fcntl.h>
+#include <sys/stat.h>
+
+#include <cerrno>
 #include <cstring>
 #include <cstdio>
-
-using namespace fatfs;
 
 static os::rtos::mutex uart_mtx("uart_lock");
 
@@ -81,43 +90,30 @@ extern "C"
   }
 }
 
-// === FatFS globals ===
-static FATFS g_fs;
-static BYTE g_work[4096];
+// The file the test writes, and the folder it lists.
+static const char kReceived[] = "/sd/tests/received.dat";
 
-static const char* fres_str(FRESULT r) {
-  switch (r) {
-    case FR_OK: return "OK"; case FR_DISK_ERR: return "DISK_ERR";
-    case FR_INT_ERR: return "INT_ERR"; case FR_NOT_READY: return "NOT_READY";
-    case FR_NO_FILE: return "NO_FILE"; case FR_NO_PATH: return "NO_PATH";
-    case FR_INVALID_NAME: return "INVALID_NAME"; case FR_DENIED: return "DENIED";
-    case FR_EXIST: return "EXIST"; case FR_INVALID_OBJECT: return "INVALID_OBJECT";
-    case FR_WRITE_PROTECTED: return "WRITE_PROTECTED"; case FR_INVALID_DRIVE: return "INVALID_DRIVE";
-    case FR_NOT_ENABLED: return "NOT_ENABLED"; case FR_NO_FILESYSTEM: return "NO_FILESYSTEM";
-    case FR_MKFS_ABORTED: return "MKFS_ABORTED"; case FR_TIMEOUT: return "TIMEOUT";
-    case FR_LOCKED: return "LOCKED"; case FR_NOT_ENOUGH_CORE: return "NOT_ENOUGH_CORE";
-    case FR_TOO_MANY_OPEN_FILES: return "TOO_MANY_OPEN_FILES";
-    case FR_INVALID_PARAMETER: return "INVALID_PARAMETER";
-    default: return "UNKNOWN";
-  }
-}
-
-static void list_root() {
+static void list_tests() {
   uart_mtx.lock();
-  uart::uart1 << "\n--- SD Card Contents ---\n";
+  uart::uart1 << "\n--- SD Card /sd/tests/ ---\n";
   uart_mtx.unlock();
-  Dir dir;
-  if (dir.open("0:/") != FR_OK) {
-    uart_mtx.lock(); uart::uart1 << "  failed to open root\n"; uart_mtx.unlock();
+  os::posix::directory* dir = os::posix::opendir("/sd/tests");
+  if (dir == nullptr) {
+    uart_mtx.lock(); uart::uart1 << "  failed to open /sd/tests\n"; uart_mtx.unlock();
     return;
   }
-  for (const auto& fno : dir) {
+  for (dirent* e = dir->read(); e != nullptr; e = dir->read()) {
+    char path[96];
+    snprintf(path, sizeof(path), "/sd/tests/%s", e->d_name);
+    struct stat st;
+    const bool ok = os::posix::stat(path, &st) == 0;
     uart_mtx.lock();
-    uart::uart1 << "  " << fno.fname;
-    if (fno.fattrib & AM_DIR) uart::uart1 << '/';
-    uart::uart1 << "  " << (int)fno.fsize << " B\n";
+    uart::uart1 << "  " << e->d_name;
+    if (ok && S_ISDIR(st.st_mode)) uart::uart1 << '/';
+    uart::uart1 << "  " << (int)(ok ? st.st_size : 0) << " B\n";
     uart_mtx.unlock();
   }
+  dir->close();
 }
 
 extern "C" volatile uint32_t g_core_stage[3];
@@ -157,16 +153,11 @@ static void* usb_thread_func(void*) {
 static void* sd_thread_func(void*) {
   unsigned core = port_cpu_id();
 
-  FRESULT r = f_mount(&g_fs, "0:", 1);
-  if (r == FR_NO_FILESYSTEM) {
-    uart_mtx.lock(); uart::uart1 << "[SD] No FAT, formatting...\n"; uart_mtx.unlock();
-    MKFS_PARM parm; memset(&parm, 0, sizeof(parm));
-    parm.fmt = FM_FAT32 | FM_SFD; parm.au_size = 0x10000;
-    r = f_mkfs("0:", &parm, g_work, sizeof(g_work));
-    if (r == FR_OK) r = f_mount(&g_fs, "0:", 1);
-  }
-  if (r != FR_OK) {
-    uart_mtx.lock(); uart::uart1 << "[SD] Mount failed: " << fres_str(r) << "\n"; uart_mtx.unlock();
+  // The card's FAT volume at /sd/ (never formatted), /sd/tests/ created.
+  uos_test_storage_start();
+  struct statvfs vfs;
+  if (os::posix::statvfs("/sd/", &vfs) != 0) {
+    uart_mtx.lock(); uart::uart1 << "[SD] Mount failed: no FAT volume at /sd/ (errno " << errno << ")\n"; uart_mtx.unlock();
     test_result(false);
   }
   uart_mtx.lock(); uart::uart1 << "[SD] SD card ready on core " << (int)core << "\n"; uart_mtx.unlock();
@@ -174,26 +165,25 @@ static void* sd_thread_func(void*) {
   for (;;) {
     if (g_file_ready) {
       uart_mtx.lock();
-      uart::uart1 << "\n[SD] Writing " << (int)g_file_len << " B to received.dat...\n";
+      uart::uart1 << "\n[SD] Writing " << (int)g_file_len << " B to " << kReceived << "...\n";
       uart_mtx.unlock();
 
-      File f;
-      r = f.open("0:/received.dat", FA_WRITE | FA_CREATE_ALWAYS);
-      bool ok = (r == FR_OK);
-      if (r == FR_OK) {
-        UINT bw;
-        ok = (f.write(g_file_buf, g_file_len, &bw) == FR_OK) && (bw == g_file_len);
-        f.close();
-        uart_mtx.lock(); uart::uart1 << "[SD] Written " << (int)bw << " B OK\n"; uart_mtx.unlock();
+      os::posix::io* f = os::posix::open(kReceived, O_WRONLY | O_CREAT | O_TRUNC);
+      bool ok = (f != nullptr);
+      if (ok) {
+        const ssize_t bw = f->write(g_file_buf, g_file_len);
+        ok = (bw == (ssize_t)g_file_len);
+        ok = (f->close() == 0) && ok;
+        uart_mtx.lock(); uart::uart1 << "[SD] Written " << (int)bw << " B " << (ok ? "OK" : "FAILED") << "\n"; uart_mtx.unlock();
       } else {
-        uart_mtx.lock(); uart::uart1 << "[SD] Write failed: " << fres_str(r) << "\n"; uart_mtx.unlock();
+        uart_mtx.lock(); uart::uart1 << "[SD] Write failed: errno " << errno << "\n"; uart_mtx.unlock();
       }
 
-      list_root();
+      list_tests();
 
       // Ask user
       uart_mtx.lock();
-      uart::uart1 << "\n[CONFIRM] Delete received.dat? (y/n): ";
+      uart::uart1 << "\n[CONFIRM] Delete " << kReceived << "? (y/n): ";
       uart_mtx.unlock();
 
       char ans;
@@ -201,10 +191,10 @@ static void* sd_thread_func(void*) {
       uart_mtx.lock(); uart::uart1 << ans << "\n"; uart_mtx.unlock();
 
       if (ans == 'y' || ans == 'Y') {
-        r = f_unlink("0:/received.dat");
-        ok = ok && (r == FR_OK);
+        const bool del = os::posix::unlink(kReceived) == 0;
+        ok = ok && del;
         uart_mtx.lock();
-        uart::uart1 << "[SD] Delete: " << fres_str(r) << "\n" << "[LED] Blinking! (delete confirmed)\n";
+        uart::uart1 << "[SD] Delete: " << (del ? "OK" : "FAILED") << "\n" << "[LED] Blinking! (delete confirmed)\n";
         uart_mtx.unlock();
         g_led_blink = 1;
       } else {
@@ -213,7 +203,7 @@ static void* sd_thread_func(void*) {
         uart_mtx.unlock();
       }
 
-      list_root();
+      list_tests();
 
       // The verdict: one file received over USB, stored on the card, and the
       // confirm answered. A few seconds for the LED, then report and exit.

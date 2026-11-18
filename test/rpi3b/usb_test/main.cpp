@@ -35,17 +35,15 @@
 #include <bcm2837.hpp>
 #include <mailbox.hpp>
 #include <usb_dwc2.hpp>
-#include <sd.hpp>
-#include <flatfs.hpp>
 #include <smp.hpp>
 #include <hw_result.hpp>
 
 #include "protocol.hpp"
 #include "sink.hpp"
 
-#if defined(HW_BUILD)
-#include <fatfs_hw.hpp>
-#endif
+#include <cmsis-plus/posix-io/file-system.h>
+#include <cmsis-plus/posix/sys/statvfs.h>
+#include <uos-test-storage.h>
 
 #include <cstdarg>
 #include <cstdint>
@@ -102,7 +100,7 @@ inline constexpr std::uint8_t kMsgFlush = 2u; // drain sentinel
 struct OutMsg
 {
   std::uint8_t kind;
-  char name[flatfs::kNameMax + 1];
+  char name[usbtest::kNameMax + 1];
   std::uint32_t offset;
   std::uint32_t len;
   std::uint8_t data[kChunkData];
@@ -269,8 +267,8 @@ log_line (const char* text)
 // Storage, and the thread that owns it
 // ---------------------------------------------------------------------------
 // SMP rule S7: storage has exactly ONE writer. Every byte that reaches the
-// card goes through sd_thread_fn(); nothing else touches the card, the FatFs
-// volume or the flatfs volume. The requester blocks until the result comes
+// card goes through sd_thread_fn(); nothing else touches the card or its FAT
+// volume. The requester blocks until the result comes
 // back, so the protocol reply still carries the real status of the write
 // rather than an optimistic guess, and a GET can hand back real bytes.
 //
@@ -293,7 +291,7 @@ struct SdReq
   const void* data;          // put: bytes to write
   void* buf;                 // get: destination
   std::uint32_t len;         // put: byte count; get: buffer capacity
-  flatfs::FileVisitor visit; // list
+  usbtest::FileVisitor visit; // list
   void* visit_ctx;
 };
 
@@ -302,14 +300,8 @@ semaphore_binary* g_sd_done = nullptr;
 volatile std::uint32_t g_sd_result = 0u;
 volatile std::uint32_t g_sd_out_len = 0u;
 
-sd::SdCard g_card;
 usbtest::RamUartSink g_ram_sink;
-#if defined(HW_BUILD)
-usbtest::FatFsSink g_fat_sink;
-#else
-flatfs::FlatFs g_fs;
-usbtest::FlatFsSink g_flat_sink (g_fs);
-#endif
+usbtest::PosixSink g_posix_sink;
 
 usbtest::Sink::Result
 sd_call (const SdReq& r)
@@ -344,7 +336,7 @@ sd_get (const char* n, void* buf, std::uint32_t cap, std::uint32_t& out_len)
 }
 
 usbtest::Sink::Result
-sd_list (flatfs::FileVisitor v, void* ctx)
+sd_list (usbtest::FileVisitor v, void* ctx)
 {
   SdReq r{};
   r.op = SdOp::list;
@@ -357,72 +349,34 @@ sd_list (flatfs::FileVisitor v, void* ctx)
 bool
 sd_mount_storage ()
 {
-  if (!g_card.init ())
+  // The card's first FAT partition mounted at /sd/, /sd/tests/ created
+  // (µOS++ POSIX I/O, the posix-io block device /dev/sd with Chan FatFs). On
+  // hardware it is the BOOT card: mounted, never formatted, and every file
+  // kept under /sd/tests/ so nothing at the root is touched. It prints its
+  // own diagnostics (the FAT window, the reason it failed).
+  uos_test_storage_start ();
+  struct statvfs vfs;
+  if (os::posix::statvfs ("/sd/", &vfs) != 0)
     {
-      log_line ("storage: no SD card detected\n");
+      log_line ("storage: no FAT volume mounted at /sd/\n");
       return false;
     }
-
   char line[128];
-#if defined(HW_BUILD)
-  // The card is the BOOT card: MBR + FAT32 with config.txt and the kernel
-  // image at its root. MOUNT it, never format it, and keep every file under
-  // tests/ so nothing at the root is touched. (flatfs cannot be used here at
-  // all - its superblock is LBA 0, which on this card is the MBR.)
-  fatfshw::bind_card (g_card);
-
-  // Report the MBR window first: it is resolved before FatFs is involved, so
-  // it survives a mount failure and is the key diagnostic on a strange card.
-  std::uint32_t part_lba = 0u, part_blocks = 0u;
-  fatfshw::partition_window (part_lba, part_blocks);
   std::snprintf (line, sizeof (line),
-                 "storage: FAT window LBA %lu, %lu sectors (%lu MiB)\n",
-                 (unsigned long)part_lba, (unsigned long)part_blocks,
-                 (unsigned long)(part_blocks >> 11));
+                 "storage: %lu KiB total, %lu KiB free\n",
+                 (unsigned long)((unsigned long long)vfs.f_blocks
+                                 * vfs.f_frsize / 1024u),
+                 (unsigned long)((unsigned long long)vfs.f_bfree
+                                 * vfs.f_frsize / 1024u));
   log_line (line);
-
-  if (!g_fat_sink.mount ())
-    {
-      std::snprintf (line, sizeof (line), "storage: FAT32 mount failed: %s\n",
-                     fatfshw::last_error ());
-      log_line (line);
-      return false;
-    }
-  const char* fat_type = "?";
-  std::uint32_t spc = 0u, nclust = 0u;
-  if (fatfshw::volume_geometry (fat_type, spc, nclust))
-    {
-      std::snprintf (line, sizeof (line),
-                     "storage: %s, %lu sectors/cluster, %lu clusters\n",
-                     fat_type, (unsigned long)spc, (unsigned long)nclust);
-      log_line (line);
-    }
-  std::uint32_t total_kib = 0u, free_kib = 0u;
-  if (fatfshw::volume_space_kib (total_kib, free_kib))
-    {
-      std::snprintf (line, sizeof (line),
-                     "storage: %lu KiB total, %lu KiB free\n",
-                     (unsigned long)total_kib, (unsigned long)free_kib);
-      log_line (line);
-    }
-  g_sink = &g_fat_sink;
-#else
-  // QEMU: a raw disk image is attached, so flatfs owns the whole device.
-  if (g_fs.mount (g_card) != flatfs::FlatFs::Result::ok)
-    {
-      log_line ("storage: flatfs mount failed\n");
-      return false;
-    }
-  (void)line;
-  g_sink = &g_flat_sink;
-#endif
+  g_sink = &g_posix_sink;
   g_file_max = 1u << 20;
   return true;
 }
 
 // One line per file, emitted through the console queues by the SD thread.
 bool
-log_list_visit (const flatfs::FileEntry& e, void* ctx)
+log_list_visit (const usbtest::FileEntry& e, void* ctx)
 {
   unsigned* n = static_cast<unsigned*> (ctx);
   char line[96];
@@ -516,8 +470,8 @@ stream_file (const char* name, const std::uint8_t* data, std::uint32_t len)
       OutMsg m;
       std::memset (&m, 0, sizeof (m));
       m.kind = kMsgChunk;
-      std::strncpy (m.name, name, flatfs::kNameMax);
-      m.name[flatfs::kNameMax] = '\0';
+      std::strncpy (m.name, name, usbtest::kNameMax);
+      m.name[usbtest::kNameMax] = '\0';
       m.offset = off;
       m.len = (len - off < kChunkData) ? (len - off) : kChunkData;
       std::memcpy (m.data, data + off, m.len);
@@ -615,7 +569,7 @@ struct ListCtx
 };
 
 bool
-list_visit (const flatfs::FileEntry& e, void* ctx)
+list_visit (const usbtest::FileEntry& e, void* ctx)
 {
   ListCtx* c = static_cast<ListCtx*> (ctx);
   const std::uint32_t need = static_cast<std::uint32_t> (std::strlen (e.name)) + 1u
@@ -659,9 +613,9 @@ command_loop (void*)
         }
       ++commands;
 
-      char name[flatfs::kNameMax + 1];
+      char name[usbtest::kNameMax + 1];
       std::size_t ni = 0u;
-      for (; ni < flatfs::kNameMax && cmd.name[ni] != '\0'; ++ni)
+      for (; ni < usbtest::kNameMax && cmd.name[ni] != '\0'; ++ni)
         {
           name[ni] = cmd.name[ni];
         }
@@ -694,24 +648,6 @@ command_loop (void*)
             if (r == usbtest::Sink::Result::ok)
               {
                 bytes_in += ulen;
-#if defined(HW_BUILD)
-                // FatFs is built without long-name support, so say what the
-                // file is really called on the card instead of renaming it
-                // behind the user's back.
-                if (g_sink == &g_fat_sink)
-                  {
-                    char leaf[13];
-                    usbtest::FatFsSink::to_83 (name, leaf);
-                    if (std::strcmp (leaf, name) != 0)
-                      {
-                        char note[96];
-                        std::snprintf (note, sizeof (note),
-                                       "stored: %s -> tests/%s (8.3)\n", name,
-                                       leaf);
-                        log_line (note);
-                      }
-                  }
-#endif
                 stream_file (name, filebuf, ulen); // SD + console, both paths
                 // "where the write was done", right after it was done. The
                 // run only reaches finish() on a terminating PING, so without

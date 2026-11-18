@@ -9,8 +9,11 @@
 
 # Tests that reach the SD card or the USB device controller, and so link
 # UOS_BOARD_DEVICES (boards/<id>/board.cmake names which driver set that is).
-set (BOARD_TEST_NEED_DEVICES
-     usb_test)
+set (BOARD_TEST_NEED_DEVICES "")
+# usb_test reaches the card through µOS++ POSIX I/O and Chan FatFs (mounted at
+# /sd/ by uos_test_storage_start()); its USB gadget is
+# micro-os-plus::devices-usb (board_test_libs below).
+list (APPEND UOS_TESTS_STORAGE usb_test)
 
 # Per-test -D flags, carried over from the per-test Makefiles.
 function (board_test_defines _app _out)
@@ -63,11 +66,24 @@ function (board_test_libs _app _out)
          aarch32-rpi-zero-2w-harness-suite PARENT_SCOPE)
   elseif (_app STREQUAL "wifi-net" OR _app STREQUAL "wifi-tcp-server")
     set (${_out} aarch32-rpi-zero-2w-wifi PARENT_SCOPE)
+  elseif (_app STREQUAL "usb_test")
+    set (${_out} micro-os-plus::devices-usb PARENT_SCOPE)
   else ()
     set (${_out} "" PARENT_SCOPE)
   endif ()
 endfunction ()
 
+
+# They use the SD card through µOS++ POSIX I/O and Chan FatFs (mounted at
+# /sd/ by uos_test_storage_start()), on the SDHOST controller.
+list (APPEND UOS_TESTS_STORAGE wifi-net wifi-tcp-server)
+function (board_test_sd_posix _app _out)
+  if (_app STREQUAL "wifi-net" OR _app STREQUAL "wifi-tcp-server")
+    set (${_out} micro-os-plus::devices-sdhost-posix PARENT_SCOPE)
+  else ()
+    set (${_out} "${UOS_BOARD_SD_POSIX}" PARENT_SCOPE)
+  endif ()
+endfunction ()
 
 # -----------------------------------------------------------------------------
 # The Wi-Fi tests. They bring the radio and the network stack with them, as
@@ -96,26 +112,15 @@ if (NOT TARGET aarch32-rpi-zero-2w-wifi)
         "${_wifi_lwip_dir}/core/ipv4/*.c"
         "${_wifi_lwip_dir}/netif/*.c")
   add_library (aarch32-rpi-zero-2w-wifi INTERFACE)
-  # The SD card: the radio owns the Arasan controller, so these tests read
-  # the card through SDHOST (SD_BACKEND_SDHOST). They compile the FatFs
-  # stack with that back end themselves and do not link
-  # micro-os-plus::devices, which carries the Arasan driver.
-  # The drivers are the device packages' (micro-os-plus-iii-devices-bcm283x,
-  # -storage).
-  set (_wifi_drivers "${UOS_DEVICES_BCM283X_DRIVERS}")
-  set (_wifi_storage "${UOS_DEVICES_STORAGE_ROOT}")
+  # The SD card is not here: the radio owns the Arasan controller, so these
+  # tests reach the card through SDHOST, as the posix-io block device /dev/sd
+  # (micro-os-plus::devices-sdhost-posix, board_test_sd_posix above).
   target_sources (aarch32-rpi-zero-2w-wifi INTERFACE
-                  ${_wifi_sources} "${_wifi_dir}/fw.S"
-                  "${_wifi_drivers}/src/sd_sdhost.cpp"
-                  "${_wifi_storage}/fatfs/ff.c"
-                  "${_wifi_storage}/fatfs/diskio_sd.cpp"
-                  "${_wifi_storage}/fatfs/fatfs_hw.cpp")
+                  ${_wifi_sources} "${_wifi_dir}/fw.S")
   target_include_directories (aarch32-rpi-zero-2w-wifi INTERFACE
                               "${_wifi_dir}"
                               "${_wifi_lwip_dir}/include"
-                              "${_wifi_drivers}/include"
-                              "${_wifi_storage}/include"
-                              "${_wifi_storage}/fatfs")
+                              "${UOS_DEVICES_BCM283X_DRIVERS}/include")
   # fw.S pulls the firmware in with .incbin, relative to this directory.
   set_property (SOURCE "${_wifi_dir}/fw.S" APPEND PROPERTY
                 COMPILE_OPTIONS "-Wa,-I${_wifi_dir}")
@@ -124,7 +129,6 @@ if (NOT TARGET aarch32-rpi-zero-2w-wifi)
                               "WIFI_TEST_PASS=\"${WIFI_TEST_PASS}\""
                               "WIFI_TEST_GATEWAY=\"${WIFI_TEST_GATEWAY}\""
                               "WIFI_COUNTRY=\"${WIFI_COUNTRY}\""
-                              "WIFI_TCP_WAIT_S=${WIFI_TCP_WAIT_S}"
-                              SD_BACKEND_SDHOST)
+                              "WIFI_TCP_WAIT_S=${WIFI_TCP_WAIT_S}")
 endif ()
 
