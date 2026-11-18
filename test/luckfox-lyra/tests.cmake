@@ -28,7 +28,7 @@ set (_lyra_tests "${CMAKE_CURRENT_LIST_DIR}")
 # card from its own interrupt-driven sdmmc.cpp, and linking both copies would
 # define sdcard::SdMmc twice.
 set (BOARD_TEST_NEED_DEVICES
-     sd_test smp-mat-sdcard-test smp-num-test smp-pipeline-test
+     smp-num-test smp-pipeline-test
      smp_test5 smp_test7)
 
 # Carried over whole from the predecessor, each with its own

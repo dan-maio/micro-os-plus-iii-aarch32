@@ -10,7 +10,7 @@
 # Tests that reach the SD card or the USB device controller, and so link
 # UOS_BOARD_DEVICES (boards/<id>/board.cmake names which driver set that is).
 set (BOARD_TEST_NEED_DEVICES
-     sd_test smp-mat-sdcard-test smp-num-test smp-pipeline-test usb_test)
+     smp-num-test smp-pipeline-test usb_test)
 
 # Per-test -D flags, carried over from the per-test Makefiles.
 function (board_test_defines _app _out)
