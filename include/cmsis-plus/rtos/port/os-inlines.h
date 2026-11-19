@@ -202,13 +202,24 @@ namespace os
         inline bool __attribute__ ((always_inline))
         in_handler_mode (void)
         {
+          // IRQ entry masks IRQs and the handler (run in SVC mode, the
+          // threads' mode, so the mode test below cannot see it) never
+          // unmasks them: with IRQs unmasked this is a thread. And only then
+          // can the core number and the flag be read on two different cores:
+          // a thread preempted between the two reads and moved would read the
+          // flag of the core it left (the AArch64 port failed so, on the Pi 4
+          // B). With IRQs masked the thread stays where it is.
+          uint32_t cpsr;
+          __asm__ volatile("mrs %0, cpsr" : "=r"(cpsr));
+          if ((cpsr & 0x80U) == 0)
+            {
+              return false;
+            }
           const unsigned cpu = scheduler::port_cpu_id_inline ();
           if (cpu < OS_NCPU && _in_isr[cpu])
             {
               return true;
             }
-          uint32_t cpsr;
-          __asm__ volatile("mrs %0, cpsr" : "=r"(cpsr));
           uint32_t mode = cpsr & 0x1FU;
           return (mode == 0x12U) || (mode == 0x11U);
         }
